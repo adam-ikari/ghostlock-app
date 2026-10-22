@@ -25,6 +25,13 @@ val gitVersionCode = runCatching {
     1
 }
 
+/* The commit count is a convenient versionCode, but it moves backwards when the
+ * history is rewritten or squashed, and an update install refuses a lower
+ * versionCode. VERSION_CODE pins it explicitly; the count stays the fallback
+ * for a checkout that has no property. */
+val versionCode = (project.findProperty("VERSION_CODE") as String?)
+    ?.trim()?.toIntOrNull() ?: gitVersionCode
+
 val buildInfoSrc = layout.buildDirectory.dir("generated/source/buildInfo")
 
 val generateBuildInfo = tasks.register("generateBuildInfo") {
@@ -74,7 +81,7 @@ android {
          * install). Targeting the platform we ship on keeps the app usable
          * there; compileSdk stays at 37 so the newer APIs remain available. */
         targetSdk = 36
-        versionCode = gitVersionCode
+        versionCode = versionCode
         versionName = appVersionName
     }
     androidResources {
