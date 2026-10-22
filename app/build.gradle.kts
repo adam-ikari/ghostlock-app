@@ -98,12 +98,29 @@ android {
     // Signing inputs come from gradle.properties (committed on purpose: this is a
     // self-use build, and losing the keystore means no update can be installed
     // over an existing copy). local.properties still works for local overrides.
+    //
+    // CI passes the signing material through the environment, so a usable
+    // KEYSTORE_PATH in the environment wins over the committed one — otherwise
+    // the upstream release pipeline would sign with the keystore checked into
+    // this repository instead of its own secret. An environment keystore that
+    // is missing or empty (a CI job without the signing secret) falls back to
+    // the committed keystore.
     val localProps = Properties()
     runCatching { localProps.load(project.rootProject.file("local.properties").inputStream()) }
-    fun signingSetting(name: String): String? =
+    fun fromEnv(name: String): String? = System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
+    fun fromProject(name: String): String? =
         (project.findProperty(name) as String?)?.trim()?.takeIf { it.isNotEmpty() }
             ?: localProps.getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }
-            ?: System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
+    val envKeystore = fromEnv("KEYSTORE_PATH")?.let(::file)?.takeIf { it.isFile && it.length() > 0L }
+    val envKeystoreComplete = envKeystore != null &&
+        listOf("KEYSTORE_PASS", "KEY_ALIAS", "KEY_PASSWORD").all { fromEnv(it) != null }
+    check(envKeystore == null || envKeystoreComplete) {
+        "KEYSTORE_PATH is set in the environment but the other signing variables are not; " +
+            "set KEYSTORE_PASS, KEY_ALIAS and KEY_PASSWORD, or unset KEYSTORE_PATH to use " +
+            "the keystore committed in the repository"
+    }
+    fun signingSetting(name: String): String? =
+        if (envKeystoreComplete) fromEnv(name) else fromProject(name) ?: fromEnv(name)
     val keystorePath = signingSetting("KEYSTORE_PATH")
     val keystorePwd = signingSetting("KEYSTORE_PASS")
     val alias = signingSetting("KEY_ALIAS")
