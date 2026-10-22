@@ -6,17 +6,7 @@
 > 请先 root 设备，再按 [MEDIATEK_ZH.md](MEDIATEK_ZH.md) 取得两个物理地址
 > （`kernel_phys_load` / `kernel_phys_offset`）。
 
-标记为**推荐 Shizuku**的固件，其 profile 中 `recommend_shizuku = 1`。每次启动时，应用会为主页的
-**通过 Shizuku 执行**开关自动打开；你可以在本次会话中关掉它，关掉后应用在本次会话内不再要求 Shizuku。
-
-Shizuku 以 shell 用户身份执行攻击，而 shell 没有 seccomp 过滤，因此会跳过 W3 seccomp bypass 阶段。
-使用步骤：
-
-1. 先启动 Shizuku（例如通过 ADB）并保持运行。
-2. 点击应用顶部的状态卡，在弹出的请求中授予权限。
-
-未标记的固件不会自动打开该开关，但**任何设备都可以手动开启**：通过 Shizuku 执行同样会跳过
-W3 seccomp bypass，即使并非必需，也能节省时间。
+应用在自己的进程里执行攻击，不需要任何配套 app。
 
 按内核版本号（主版本.次版本.修订号）从小到大排好了。版本号相同的行保持原来的先后顺序。原表只有两行位置不对，已经挪好：
 - `6.1.134` 原来排在 `6.1.115` 前面，现在挪到 `6.1.118` 之后。
@@ -25,7 +15,7 @@ W3 seccomp bypass，即使并非必需，也能节省时间。
 | Kernel                                                 | Devices                                                          |
 |--------------------------------------------------------|------------------------------------------------------------------|
 | `5.10.236-android12-9-00014-gb97c62c4e7d1`             | Sony Xperia 5 IV (SO-54C / PDX-224)                              |
-| `5.15.41-android13-8-g8dc4c75ab7d8-ab1673212412`       | MEIZU 20 Pro · 推荐Shizuku                                        |
+| `5.15.41-android13-8-g8dc4c75ab7d8-ab1673212412`       | MEIZU 20 Pro |
 | `5.15.119-android13-8-g6ff5097ee32a-ab1764665171`      | MEIZU 21 Note                                                    |
 | `5.15.167-android13-8-00017-gb1f32b310a30-ab12826353`  | Red Magic 8 Pro                                                  |
 | `5.15.178-android13-8-00025-g7feb0b0b7cd8-ab14134651`  | Sharp AQUOS R8 SH-R80                                            |
@@ -60,7 +50,7 @@ W3 seccomp bypass，即使并非必需，也能节省时间。
 | `6.1.162-android14-11-g5e8b0cffebd1-ab15202165`        | Google Pixel 9a (Tensor G4)                                      |
 | `6.6.30-android15-8-g54dcbfbef792-ab12368803-4k`       | Red Magic Tablet 3 Pro                                           |
 | `6.6.30-android15-8-g6b55ce738535-4k`                  | Redmi 13c                                                        |
-| `6.6.30-android15-8-g24ffe62b0a0e-abogki387229724-4k`  | vivo X200 Pro · 建议使用 Shizuku                                  |
+| `6.6.30-android15-8-g24ffe62b0a0e-abogki387229724-4k`  | vivo X200 Pro |
 | `6.6.77-android15-8-g4a507830d890-ab13636293-4k`       | Xiaomi Civi 5 Pro, REDMI K90 / 4 Turbo, POCO F7                  |
 | `6.6.77-android15-8-g63ce7556864c-ab13994517-4k`       | Xiaomi 15                                                        |
 | `6.6.77-android15-8-gca30f3b4bef6-abogki440974771-4k`  | Xiaomi 15 Pro, REDMI K80 Pro / K80 Ultra                         |
