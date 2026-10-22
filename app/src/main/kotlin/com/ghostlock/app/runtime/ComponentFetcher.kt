@@ -54,6 +54,29 @@ object ComponentFetcher {
     fun byKey(key: String): Component? = Defaults.firstOrNull { it.key == key }
 
     /**
+     * Preset reverse proxies, in the order the picker shows them.
+     *
+     * Users cannot type a free-form prefix any more: an arbitrary proxy sees
+     * and can replace the zip, and these packages are installed as root. The
+     * list is fixed, https-only, and covers the public accelerators that were
+     * reachable when it was last checked; entry 0 is "direct".
+     */
+    val MirrorPresets = listOf(
+        "",
+        "https://ghfast.top/",
+        "https://gh-proxy.com/",
+        "https://ghproxy.net/",
+    )
+
+    /** Hosts the preset accelerators actually forward; everything else goes direct. */
+    private val MirroredHosts = listOf(
+        "github.com",
+        "raw.githubusercontent.com",
+        "objects.githubusercontent.com",
+        "codeload.github.com",
+    )
+
+    /**
      * KernelSU's manager is the one component that must exist as an *installed
      * app*: the root script pulls `libksud.so` out of its APK. Its releases
      * publish a plain APK asset, so the newest `-release.apk` is the file to
@@ -84,11 +107,17 @@ object ComponentFetcher {
      *
      * An empty prefix means "go straight to the upstream". A prefix that is not
      * an https URL is ignored rather than silently downgrading to http.
+     *
+     * The public accelerators only forward GitHub, so a URL outside [MirroredHosts]
+     * goes direct: measured against them, `api.github.com` returns 403 and
+     * `lsposed.zip` returns a 404 HTML page, and neither would ever be fixed by
+     * a proxy. Proxying them would turn a working request into a broken one.
      */
     fun withMirror(url: String, mirrorPrefix: String): String {
         val prefix = mirrorPrefix.trim()
         if (prefix.isEmpty()) return url
         if (!prefix.startsWith("https://")) return url
+        if (MirroredHosts.none { url.startsWith("https://$it/") }) return url
         if (prefix.contains("{url}")) return prefix.replace("{url}", url)
         return prefix.trimEnd('/') + "/" + url
     }

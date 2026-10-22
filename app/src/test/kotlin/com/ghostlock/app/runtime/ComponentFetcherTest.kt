@@ -141,6 +141,40 @@ class ComponentFetcherTest {
     }
 
     @Test
+    fun `every preset mirror is https and routes through withMirror`() {
+        assertTrue("entry 0 is direct", ComponentFetcher.MirrorPresets.first().isEmpty())
+        for (preset in ComponentFetcher.MirrorPresets.filter { it.isNotEmpty() }) {
+            assertTrue("preset $preset must be https", preset.startsWith("https://"))
+            assertEquals(
+                preset + "https://github.com/a/b.zip",
+                ComponentFetcher.withMirror("https://github.com/a/b.zip", preset),
+            )
+        }
+    }
+
+    @Test
+    fun `a url the accelerators do not forward goes direct`() {
+        /* Measured: api.github.com answers 403 through all presets and
+         * lsposed.zip answers 404 HTML. Proxying them breaks a working fetch. */
+        val prefix = ComponentFetcher.MirrorPresets.last()
+        assertEquals(
+            ComponentFetcher.KernelSuReleasesUrl,
+            ComponentFetcher.withMirror(ComponentFetcher.KernelSuReleasesUrl, prefix),
+        )
+        assertEquals(
+            "https://lsposed.zip/zygisk-next/update.json",
+            ComponentFetcher.withMirror("https://lsposed.zip/zygisk-next/update.json", prefix),
+        )
+    }
+
+    @Test
+    fun `a github url is still rewritten by every preset`() {
+        val prefix = ComponentFetcher.MirrorPresets.last()
+        val url = "https://github.com/LSPosed/ZygiskNext/releases/download/v1.5.2/x.zip"
+        assertEquals(prefix + url, ComponentFetcher.withMirror(url, prefix))
+    }
+
+    @Test
     fun `parses the zipUrl of an update json`() {
         val json = """{"version":"v1.5.2","versionCode":864,
             "zipUrl":"https://github.com/LSPosed/ZygiskNext/releases/download/v1.5.2/x.zip"}"""

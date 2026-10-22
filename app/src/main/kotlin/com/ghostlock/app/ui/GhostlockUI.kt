@@ -143,6 +143,8 @@ data class GhostlockUiState(
     val debugExportLocation: String = "",
     val debugKernelLogEnabled: Boolean = true,
     val aboutVisible: Boolean = false,
+    /** Open legal document on top of About; null when none is open. */
+    val legalDocument: LegalDocument? = null,
     val parametersVisible: Boolean = false,
     val profileOverrideVisible: Boolean = false,
     val advancedOverrideVisible: Boolean = false,
@@ -224,6 +226,8 @@ interface GhostlockActions {
     fun onCloseAdvanced()
     fun onShowAbout()
     fun onCloseAbout()
+    fun onOpenLegalDocument(document: LegalDocument)
+    fun onCloseLegalDocument()
     fun onDebugExportChanged(enabled: Boolean)
     fun onDebugExportLocationPick()
     fun onDebugKernelLogChanged(enabled: Boolean)
@@ -256,6 +260,7 @@ internal sealed interface GhostlockScreen : NavKey {
     data object Main : GhostlockScreen
     data object Advanced : GhostlockScreen
     data object About : GhostlockScreen
+    data class Legal(val document: LegalDocument) : GhostlockScreen
     data object Parameters : GhostlockScreen
     data object LoadConfig : GhostlockScreen
     data object Builtin : GhostlockScreen
@@ -270,6 +275,7 @@ internal fun navigationPath(state: GhostlockUiState): List<GhostlockScreen> {
     path += GhostlockScreen.Advanced
     if (state.aboutVisible) {
         path += GhostlockScreen.About
+        state.legalDocument?.let { path += GhostlockScreen.Legal(it) }
         return path
     }
     if (!state.parametersVisible) return path
@@ -305,6 +311,7 @@ private fun closeScreen(screen: GhostlockScreen, actions: GhostlockActions) {
         GhostlockScreen.Main -> Unit
         GhostlockScreen.Advanced -> actions.onCloseAdvanced()
         GhostlockScreen.About -> actions.onCloseAbout()
+        is GhostlockScreen.Legal -> actions.onCloseLegalDocument()
         GhostlockScreen.Parameters -> actions.onCloseParameters()
         GhostlockScreen.LoadConfig -> actions.onCloseLoadConfig()
         GhostlockScreen.Builtin -> actions.onCloseBuiltinProfiles()
@@ -364,7 +371,13 @@ internal fun GhostlockApp(
                         AdvancedScreen(state = state, actions = actions)
                     }
                     entry<GhostlockScreen.About>(swipeDismiss = swipeBack) {
-                        AboutScreen(onBack = actions::onCloseAbout)
+                        AboutScreen(
+                            onBack = actions::onCloseAbout,
+                            onOpenLegal = actions::onOpenLegalDocument,
+                        )
+                    }
+                    entry<GhostlockScreen.Legal>(swipeDismiss = swipeBack) { screen ->
+                        LegalScreen(document = screen.document, onBack = actions::onCloseLegalDocument)
                     }
                     entry<GhostlockScreen.Parameters>(swipeDismiss = swipeBack) {
                         ParameterScreen(state = state, actions = actions)

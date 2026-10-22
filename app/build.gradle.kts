@@ -204,6 +204,31 @@ tasks.named("preBuild") {
     dependsOn(generateBuildInfo)
 }
 
+/* The in-app legal pages show the repository's own LICENSE / NOTICE /
+ * LICENSES/Apache-2.0.txt / LEGAL.md verbatim. Copying them into assets at
+ * build time keeps one source of truth: editing the repository text updates
+ * the app, with no second copy to drift. */
+val legalAssetFiles = listOf(
+    rootProject.file("LICENSE") to "legal/LICENSE.txt",
+    rootProject.file("NOTICE") to "legal/NOTICE.txt",
+    rootProject.file("LICENSES/Apache-2.0.txt") to "legal/Apache-2.0.txt",
+    rootProject.file("LEGAL.md") to "legal/LEGAL.md",
+    rootProject.file("LEGAL.en.md") to "legal/LEGAL.en.md",
+)
+val legalAssetsDir = layout.buildDirectory.dir("generated/legalAssets")
+
+val syncLegalAssets = tasks.register<Sync>("syncLegalAssets") {
+    into(legalAssetsDir.map { it.dir("legal") })
+    legalAssetFiles.forEach { (source, assetPath) ->
+        from(source) { rename { assetPath.substringAfterLast('/') } }
+    }
+}
+
+android.sourceSets.getByName("main").assets.srcDir(legalAssetsDir.get().asFile)
+tasks.named("preBuild") {
+    dependsOn(syncLegalAssets)
+}
+
 /* The arm64 native payload is only needed by the tasks that merge/package the
  * APK/AAB. Keeping it off preBuild means pure JVM unit tests
  * (:app:testDebugUnitTest) no longer build the native binaries, so a developer

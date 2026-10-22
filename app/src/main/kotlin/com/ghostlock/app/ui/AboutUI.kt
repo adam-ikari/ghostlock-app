@@ -50,7 +50,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 @Composable
-internal fun AboutScreen(onBack: () -> Unit) {
+internal fun AboutScreen(onBack: () -> Unit, onOpenLegal: (LegalDocument) -> Unit) {
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val listState = rememberLazyListState()
     val heroHeight = 300.dp
@@ -172,13 +172,32 @@ internal fun AboutScreen(onBack: () -> Unit) {
                 }
             }
 
+            item(key = "legal-title") {
+                SmallTitle(text = stringResource(R.string.about_legal))
+            }
+            item(key = "legal-terms") {
+                AboutLink(stringResource(R.string.legal_terms), "") {
+                    onOpenLegal(LegalDocument.Terms)
+                }
+            }
+            item(key = "legal-license") {
+                AboutLink(stringResource(R.string.legal_license), "") {
+                    onOpenLegal(LegalDocument.License)
+                }
+            }
+            item(key = "legal-notice") {
+                AboutLink(stringResource(R.string.legal_notice), "") {
+                    onOpenLegal(LegalDocument.Notice)
+                }
+            }
+            item(key = "legal-apache") {
+                AboutLink(stringResource(R.string.legal_apache), "") {
+                    onOpenLegal(LegalDocument.ApacheLicense)
+                }
+            }
+
             item(key = "licenses-title") {
                 SmallTitle(text = stringResource(R.string.about_open_source))
-            }
-            item(key = "license") {
-                AboutLink("PolyForm Noncommercial 1.0.0", "github.com/YuKongA/ghostlock-app/LICENSE") {
-                    uriHandler.openUri("https://github.com/YuKongA/ghostlock-app/blob/main/LICENSE")
-                }
             }
             item(key = "miuix") {
                 AboutLink("miuix", "github.com/compose-miuix-ui/miuix") {

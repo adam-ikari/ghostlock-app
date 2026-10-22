@@ -22,6 +22,7 @@ import com.ghostlock.app.domain.usecase.ParseSourceUseCase
 import com.ghostlock.app.domain.usecase.ReadDocumentUseCase
 import com.ghostlock.app.domain.usecase.RunExploitUseCase
 import com.ghostlock.app.domain.usecase.SelectCpuPairUseCase
+import com.ghostlock.app.runtime.ComponentFetcher
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -202,6 +203,7 @@ class GhostlockViewModel(
             it.copy(
                 advancedScreenVisible = true,
                 aboutVisible = false,
+                legalDocument = null,
                 parametersVisible = false,
                 loadConfigVisible = false,
                 builtinScreenVisible = false,
@@ -227,6 +229,7 @@ class GhostlockViewModel(
             it.copy(
                 advancedScreenVisible = false,
                 aboutVisible = false,
+                legalDocument = null,
                 parametersVisible = false,
                 loadConfigVisible = false,
                 builtinScreenVisible = false,
@@ -431,11 +434,19 @@ class GhostlockViewModel(
     }
 
     fun onShowAbout() {
-        mutableState.update { it.copy(aboutVisible = true) }
+        mutableState.update { it.copy(aboutVisible = true, legalDocument = null) }
     }
 
     fun onCloseAbout() {
-        mutableState.update { it.copy(aboutVisible = false) }
+        mutableState.update { it.copy(aboutVisible = false, legalDocument = null) }
+    }
+
+    fun onOpenLegalDocument(document: LegalDocument) {
+        mutableState.update { it.copy(legalDocument = document) }
+    }
+
+    fun onCloseLegalDocument() {
+        mutableState.update { it.copy(legalDocument = null) }
     }
 
     fun onDebugExportChanged(enabled: Boolean) {
@@ -851,18 +862,37 @@ class GhostlockViewModel(
      */
     fun onPickModuleZip() = send(GhostlockEffect.PickDocument(DocumentRequest.ModuleZip))
 
-    /** True while the download-proxy input dialog owns the confirm button. */
-    private var mirrorInputPending = false
+    /** True while the download-proxy picker owns the next item selection. */
+    private var mirrorPickerPending = false
 
     /**
-     * Sets the reverse-proxy prefix used for component downloads.
+     * Picks the reverse proxy used for component downloads.
      *
      * Upstream lives on GitHub, which is slow or unreachable on some networks;
      * a proxy prefix routes both the update.json and the zip through it. The
      * proxy sees and can replace the package, and these packages are installed
-     * as root — hence the warning in the hint, and the https-only rule in
-     * ComponentFetcher.
+     * as root, so the choice is a fixed list of known accelerators instead of
+     * free-form input.
      */
+    fun onSetDownloadMirror() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = runCatching { repository.downloadMirror() }.getOrDefault("").trim()
+            val presets = ComponentFetcher.MirrorPresets
+            withContext(Dispatchers.Main) {
+                mirrorPickerPending = true
+                mutableState.update {
+                    it.copy(
+                        dialogVisible = true,
+                        dialogType = DialogType.LIST,
+                        dialogTitleRes = R.string.download_mirror_title,
+                        dialogItems = presets.map { if (it.isEmpty()) "direct" else it },
+                        dialogCurrentItemIndex = presets.indexOf(current).coerceAtLeast(0),
+                    )
+                }
+            }
+        }
+    }
+
     /**
      * Fetches the KernelSU manager APK and opens the package installer.
      *
@@ -887,23 +917,6 @@ class GhostlockViewModel(
         }
     }
 
-    fun onSetDownloadMirror() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val current = runCatching { repository.downloadMirror() }.getOrDefault("")
-            withContext(Dispatchers.Main) {
-                mirrorInputPending = true
-                mutableState.update {
-                    it.copy(
-                        dialogVisible = true,
-                        dialogType = DialogType.INPUT,
-                        dialogTitleRes = R.string.download_mirror_title,
-                        dialogMessageRes = R.string.download_mirror_hint,
-                        dialogInput = current,
-                    )
-                }
-            }
-        }
-    }
 
     /**
      * Fetches one component package from the release its author publishes.
@@ -1084,6 +1097,11 @@ class GhostlockViewModel(
 
     fun onDialogItemSelected(index: Int) {
         dismissDialog()
+        if (mirrorPickerPending) {
+            mirrorPickerPending = false
+            ComponentFetcher.MirrorPresets.getOrNull(index)?.let(::saveDownloadMirror)
+            return
+        }
         when (parseDialogStage) {
             ParseDialogStage.Mode -> when (index) {
                 0 -> pickPayload()
@@ -1106,19 +1124,16 @@ class GhostlockViewModel(
     fun onDialogConfirm(value: String) {
         val dialogType = state.value.dialogType
         val renameTarget = state.value.userProfileRenameTarget
-        val mirrorPending = mirrorInputPending
-        mirrorInputPending = false
         dismissDialog(clearConfirmation = false)
         when {
             renameTarget != null -> renameUserProfile(renameTarget, value)
-            mirrorPending -> saveDownloadMirror(value)
             dialogType == DialogType.INPUT -> parseUrl(value)
             else -> Unit
         }
     }
 
     fun onDialogDismiss() {
-        mirrorInputPending = false
+        mirrorPickerPending = false
         dismissDialog()
     }
 

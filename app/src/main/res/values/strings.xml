@@ -11,6 +11,11 @@
     <string name="about_source_code">Source code</string>
     <string name="about_origins">Project origins</string>
     <string name="about_open_source">Licenses</string>
+    <string name="about_legal">Legal</string>
+    <string name="legal_terms">Disclaimer and terms of use</string>
+    <string name="legal_license">Project license (PolyForm NC 1.0.0)</string>
+    <string name="legal_notice">Third-party notice</string>
+    <string name="legal_apache">Apache License 2.0</string>
     <string name="opensource_info">Copyright © 2026 YuKongA</string>
     <string name="action_import_offsets_conf">Import offsets.conf (v2)</string>
     <string name="action_import_offsets_json">Import offsets.json (v1)</string>
@@ -96,10 +101,9 @@
     <string name="module_fetch_kernelsu_summary">Downloads the upstream APK and opens the installer; the root script takes libksud.so out of it</string>
     <string name="module_fetch_kernelsu_missing">Downloaded APK is gone</string>
     <string name="module_fetch_kernelsu_no_installer">No package installer accepted the APK</string>
-    <string name="download_mirror_label">Download proxy</string>
-    <string name="download_mirror_summary">Empty = straight upstream. Accepts "https://mirror/" or "https://mirror/?u={url}". A proxy can see and replace the zip, and these packages are installed as root — use one you trust</string>
-    <string name="download_mirror_title">Download proxy prefix</string>
-    <string name="download_mirror_hint">https://…/ 或 https://…/?u={url}</string>
+    <string name="download_mirror_label">Download accelerator</string>
+    <string name="download_mirror_summary">Pick from the preset reverse-proxy list. A proxy can see and replace the zip, and these packages are installed as root — pick one you trust</string>
+    <string name="download_mirror_title">Download accelerator</string>
     <string name="safe_mode_label">Safe mode</string>
     <string name="safe_mode_summary">Disable all modules</string>
     <string name="force_attack_test_label">Force attack test</string>

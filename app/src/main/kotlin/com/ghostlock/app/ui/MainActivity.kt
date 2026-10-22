@@ -229,6 +229,9 @@ private fun GhostlockRoute(
             override fun onCloseAdvanced() = viewModel.onCloseAdvanced()
             override fun onShowAbout() = viewModel.onShowAbout()
             override fun onCloseAbout() = viewModel.onCloseAbout()
+            override fun onOpenLegalDocument(document: LegalDocument) =
+                viewModel.onOpenLegalDocument(document)
+            override fun onCloseLegalDocument() = viewModel.onCloseLegalDocument()
             override fun onDebugExportChanged(enabled: Boolean) = viewModel.onDebugExportChanged(enabled)
             override fun onDebugExportLocationPick() = viewModel.onDebugExportLocationPick()
             override fun onDebugKernelLogChanged(enabled: Boolean) =
