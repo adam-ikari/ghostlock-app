@@ -20,8 +20,6 @@ interface GhostlockRepository {
     /** Skip the pre-attack KernelSU check and run the exploit as a test. */
     fun setForceAttackTest(enabled: Boolean)
 
-    fun setShizukuEnabled(enabled: Boolean)
-
     /** User-chosen manager package, or null for auto-detect. */
     fun selectedManagerPackage(): String?
 
@@ -29,6 +27,7 @@ interface GhostlockRepository {
 
     /** All installed non-system apps, compatible-first ordering. */
     suspend fun installedManagers(): List<ManagerScanner.Candidate>
+
 
     /**
      * Imports one or more picked documents (file name -> text). Includes are
@@ -53,6 +52,45 @@ interface GhostlockRepository {
     suspend fun readDocument(uri: String): String
 
     suspend fun cacheDocument(uri: String, fileName: String): String
+
+    /**
+     * Copies a picked module zip into the runtime home's modules/ directory.
+     *
+     * The app never ships the Zygisk / LSPosed packages itself: ZygiskNext has
+     * been "all rights reserved" since v4-0.9.2 and its README forbids
+     * redistribution, while Vector is GPL-3.0 and this app is Apache-2.0. The
+     * user picks the zips (or fetches them, see below) and the native root
+     * script installs them.
+     */
+    suspend fun stageModuleZip(uri: String, name: String): String =
+        cacheDocument(uri, name)
+
+    /**
+     * Downloads one component package (see `ComponentFetcher.byKey`) from the
+     * release its author publishes into the module staging directory.
+     *
+     * Fetching is not redistribution: the bytes go from the rights holder to the
+     * user's own device. A package that is already staged is left alone, so a
+     * second tap never replaces a version that works.
+     */
+    suspend fun fetchModulePackage(key: String, onLog: (String) -> Unit): Boolean
+
+    /**
+     * Reverse-proxy prefix for component downloads, empty when downloads go
+     * straight upstream. Public accelerators take either `https://mirror/` (the
+     * url is appended) or `https://mirror/?u={url}`.
+     */
+    /**
+     * Downloads the KernelSU manager APK into the app cache and returns its
+     * path, or null when it could not be fetched and verified. The UI hands the
+     * path to the package installer: the manager is the one component that must
+     * be an installed app, because the root script loads `libksud.so` from it.
+     */
+    suspend fun fetchKernelSuManager(onLog: (String) -> Unit): String?
+
+    fun downloadMirror(): String
+
+    fun setDownloadMirror(prefix: String)
 
     suspend fun publishOffsets(candidate: OffsetCandidate): String
 
@@ -119,18 +157,11 @@ interface GhostlockRepository {
 
     suspend fun runExploit(pair: CpuPair, onLog: (String) -> Unit): Int
 
-    suspend fun runExploitWithShizuku(pair: CpuPair, onLog: (String) -> Unit): Int
-
     /**
      * The step left `in_progress` by the previous run (usually a kernel panic),
-     * or null when the last run completed/failed cleanly. `w3*` means Shizuku
-     * (shell uid, no seccomp) can skip that stage.
+     * or null when the last run completed/failed cleanly.
      */
     suspend fun lastRunStuckStep(): String?
-
-    fun requestShizukuPermission()
-
-    fun setShizukuStatusListener(listener: (() -> Unit)?)
 
     fun close()
 }

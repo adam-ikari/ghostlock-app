@@ -12,8 +12,6 @@ GhostLock 利用 CVE-2026-43499 在支持的 Android 内核上获取临时 root�
 
 内核必须精确匹配 `uname -r`。请在[支持设备列表](docs/kernel_profiles/SUPPORTED_DEVICES_ZH.md)中核对内核版本。
 
-如果启用了 Shizuku，请先通过 ADB 启动，再运行 GhostLock。点击 GhostLock 的状态卡授权。
-
 任何自带 `libksud.so` 的 root 管理器都可提供 `ksud` 用于加载模块。内置列表（KernelSU、ReSukiSU、BakaSU、KowSU）会自动检测；其他管理器可在 **设置 → 根管理器** 中手动选择。缺 `ksud` 时 W1/W2 仍可拿到 uid 0，但不会加载模块。
 
 ## 添加内核 profile
@@ -69,8 +67,13 @@ build/extract/release/ghostlock-extract OTA.zip --format conf --out profile.conf
 
 ## 来源与许可证
 
-采用 [Apache License 2.0](LICENSE)，基于以下项目：
+本项目整体采用 [PolyForm Noncommercial License 1.0.0](LICENSE)：代码公开、可读、可改、可自行编译，**禁止商业用途**；商业授权需单独取得书面许可。这不是 OSI 定义的开源许可，按惯例称 source-available。
 
-- [NebuSec/CyberMeowfia](https://github.com/NebuSec/CyberMeowfia)
-- [JoinChang/ghostlock-oneplus](https://github.com/JoinChang/ghostlock-oneplus)
-- [x-spy/CVE-2026-43499-popsicle](https://github.com/x-spy/CVE-2026-43499-popsicle)
+`src/core/kernelsnitch/` 的 `futex_hash.h`、`kernelsnitch.h`、`timeutils.h`、`utils.h` 移植自
+[NebuSec/CyberMeowfia](https://github.com/NebuSec/CyberMeowfia)（Apache-2.0），许可全文见
+[`LICENSES/Apache-2.0.txt`](LICENSES/Apache-2.0.txt)，完整归属见 [`NOTICE`](NOTICE)。
+
+研究阶段参考过 [JoinChang/ghostlock-oneplus](https://github.com/JoinChang/ghostlock-oneplus) 与
+[x-spy/CVE-2026-43499-popsicle](https://github.com/x-spy/CVE-2026-43499-popsicle)。
+
+ZygiskNext、Vector、KernelSU 管理器都不随本仓库或 APK 分发，由用户运行时自行获取。

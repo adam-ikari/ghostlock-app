@@ -240,6 +240,10 @@ namespace ghostlock::attack {
             "LOG='%s'\n"
             "SAFE_MODE=%d\n"
             "KSUD='%s'\n"
+            /* The root script is exec'd without the environment (execl), so the
+             * component-package directory has to travel inside the script. */
+            "LSPD_MODULES='%s'\n"
+            "SELINUX_FIXUP='%s'\n"
             "echo \"[*] root script start uid=$(id -u) euid=$(id -u)\" >\"$LOG\"\n"
             "chmod 644 \"$LOG\" 2>/dev/null\n"
             "echo \"[*] seccomp=$(grep Seccomp /proc/self/status 2>/dev/null | tr '\\n' ' ')\" >>\"$LOG\"\n"
@@ -352,6 +356,7 @@ namespace ghostlock::attack {
             "  printf '%%b' \"$CONFIG\" | dd of=\"$POLICY\" bs=1 seek=23 count=1 conv=notrunc\n"
             "}\n"
             "FIXUP_RC=1\n"
+            "if [ \"$SELINUX_FIXUP\" = \"1\" ]; then\n"
             "for i in $(seq 1 10); do\n"
             "  echo \"[*] fixup: attempt $i\" >>\"$LOG\"\n"
             "  if ! prepare_policy >>\"$LOG\" 2>&1; then\n"
@@ -378,11 +383,33 @@ namespace ghostlock::attack {
             "  sleep 2\n"
             "done\n"
             "echo \"[*] policy fixup rc=$FIXUP_RC\" >>\"$LOG\"\n"
-            "if [ \"$FIXUP_RC\" -eq 0 ]; then\n"
+            "else\n"
+            "  FIXUP_RC=2\n"
+            "  echo '[*] policy reload skipped (SELINUX_FIXUP=0)' >>\"$LOG\"\n"
+            "fi\n"
+            "if [ \"$FIXUP_RC\" -eq 0 ] || [ \"$FIXUP_RC\" -eq 2 ]; then\n"
             "# load_policy ok: late-load (module init re-enforces); already-loaded restores below\n"
+            /* No `[ -x /system/bin/su ]` here: once a late-load has run, su is
+             * a magic mount and stat'ing it blocks the script. Re-running the
+             * late-load is harmless and is also what mounts su into this
+             * namespace, so the loaded case takes the same path. */
+            /* App route (SELINUX_FIXUP=0) differs in *when* the late-load runs:
+             * this root child lives in u:r:kernel:s0 and the late-load puts the
+             * policy back to enforcing, so every later exec (ksud, sh, znctl)
+             * gets EACCES. Everything that needs exec therefore has to happen
+             * while the policy is still permissive, and the late-load moves to
+             * the very end of the script (see below). */
+            "if [ \"$SELINUX_FIXUP\" = \"1\" ]; then\n"
             "if grep -q kernelsu /proc/modules 2>/dev/null; then\n"
+            /* kernelsu is in memory but su was never mounted into this
+             * namespace (the late-load is what mounts it). Re-run the
+             * late-load so the root script can switch to the ksu domain. */
+
             "  KSU_ALREADY=1\n"
-            "  echo \"[*] kernelsu already loaded; skipping late-load\" >>\"$LOG\"\n"
+            "  echo \"[*] kernelsu loaded but su missing; re-running late-load to mount su\" >>\"$LOG\"\n"
+            "  chmod 755 \"$KSUD\" 2>/dev/null\n"
+            "  \"$KSUD\" late-load --kmi \"$KMI\" --allow-shell >>\"$LOG\" 2>&1\n"
+            "  echo \"[*] late-load exit=$?\" >>\"$LOG\"\n"
             "else\n"
             "  KSU_ALREADY=0\n"
             "  if [ ! -x \"$KSUD\" ]; then\n"
@@ -405,9 +432,228 @@ namespace ghostlock::attack {
             "  exit 1\n"
             "fi\n"
             "echo '[+] KernelSU module loaded' >>\"$LOG\"\n"
-            "if [ \"$KSU_ALREADY\" -eq 1 ]; then\n"
+            "else\n"
+            "  KSU_ALREADY=0\n"
+            "  echo '[*] app route: late-load deferred to the end of the run' >>\"$LOG\"\n"
+            "fi\n"
+            "if [ \"$KSU_ALREADY\" -eq 1 ] && [ \"$SELINUX_FIXUP\" = \"1\" ]; then\n"
             "  echo \"[*] kernelsu already loaded; restoring enforcing\" >>\"$LOG\"\n"
             "  echo 1 > /sys/fs/selinux/enforce 2>/dev/null\n"
+            "fi\n"
+            /* ZygiskNext / Vector(LSPosed) 栈的安装与激活。
+             *
+             * 这一段是**可选**的：只有 app 显式设置 GHOSTLOCK_LSPD_MODULES
+             * （用户选了组件包）时才执行。没设置就直接跳过，
+             * 「一键 root」永远不会因为它把设备带进 recovery。
+             *
+             * 时序与 docs/titan2-ondevice-flow.md 里真机验证过的手写流程
+             * **逐条一致**，任何一步的顺序变了都会掉进 recovery
+             * （recovery 里 adbd 关着，adb/fastboot 都够不着，只能长按电源键）：
+             *   ① KernelSU 进内存（上面那次 late-load 的副产物）→ shell 拿到 su
+             *   ② su 域：先删旧模块目录（**只删一次，在装之前**），再逐个装模块
+             *      （必须用已安装那份 /data/adb/ksu/bin/ksud；ksu 域执行不了
+             *        app 目录里的 libksud.so）
+             *   ③ su 域：再 late-load 一次（apply 模块 + 跑 stage 脚本）
+             *   ④ su 域：起 ZygiskNext 守护进程 → 它把注入点挂进 zygote
+             *   ⑤ 等 zygote 真的挂上（znctl status → zygote_states:1）
+             *   ⑥ 再等 60 秒让注入稳定，然后才起 Vector daemon
+             *      （它靠重启 system_server 注入服务；注入没稳就重启 →
+             *       framework 起不来 → rescue party → recovery）
+             * 少一步或顺序反了都会掉进 recovery，所以这段脚本刻意保守：
+             * 拿不到 zygote 就**不**起 Vector daemon，宁可不激活 LSPosed，
+             * 也不冒把设备带进 recovery 的风险。 */
+            "if [ -n \"$LSPD_MODULES\" ]; then\n"
+            "  MODZIP_DIR=\"$LSPD_MODULES\"\n"
+            "  echo \"[*] modules dir=$MODZIP_DIR\" >>\"$LOG\"\n"
+            /* No su here on purpose. The root script runs in the mount
+             * namespace the exploit was launched from (adb shell's), and
+             * /system/bin/su is a magic mount that only exists in the
+             * namespaces KernelSU's manager app mounts it into — stat'ing it
+             * from here fails, and worse, the su probe can block. The
+             * installed ksud (/data/adb/ksu/bin/ksud) runs in the ksu domain
+             * on its own, so it can install the modules and read the app's
+             * private data dir without any su in the picture. */
+            "  KSU_KSUD=/data/adb/ksu/bin/ksud\n"
+            /* The installed ksud only exists after a late-load has run on this
+             * device at least once. Fall back to the packaged binary (it can
+             * still install modules, just not into /data/adb/ksu/bin) instead
+             * of skipping the whole stack. */
+            "  if [ ! -x \"$KSU_KSUD\" ]; then\n"
+            "    chmod 755 \"$KSUD\" 2>/dev/null\n"
+            "    if [ -x \"$KSUD\" ]; then KSU_KSUD=\"$KSUD\"; echo \"[*] installed ksud missing; using $KSU_KSUD\" >>\"$LOG\"; fi\n"
+            "  fi\n"
+            /* The late-load above mounts su into this namespace, so the module
+             * install can run in the ksu domain (the shell domain cannot
+             * write /data/adb/modules_update). */
+            /* Probe su by running it instead of stat'ing it. KernelSU's su
+             * is a magic mount: `[ -x /system/bin/su ]` blocks the whole
+             * script on this device (both 2026-10-22 app runs stopped right
+             * after "modules dir=" with the helper script never written). An
+             * exec either answers or times out. */
+            "  SU=''\n"
+            "  if [ \"$SELINUX_FIXUP\" = \"1\" ]; then\n"
+            "  for cand in /system/bin/su /system/xbin/su; do\n"
+            "    SUOUT=$(timeout 10 \"$cand\" -c 'echo ghostlock-su-ok' 2>&1)\n"
+            "    case \"$SUOUT\" in *ghostlock-su-ok*) SU=\"$cand\"; break;; esac\n"
+            "  done\n"
+            "  else\n"
+            /* App route: no su at all. su called from u:r:kernel:s0 blocks in
+             * pipe_read and not even `timeout` gets it back (2026-10-22, both
+             * the 10s and the 60s wrapper stalls). Instead of rewriting the
+             * verified block below, point $SU at a wrapper with su's `-c CMD`
+             * shape so every call site keeps working — it just runs the
+             * command in this process instead of switching domains. */
+            "  cat >/data/local/tmp/.ghostlock_run.sh <<'RUNEOF'\n"
+            "#!/system/bin/sh\n"
+            "exec sh -c \"$2\"\n"
+            "RUNEOF\n"
+            "  chmod 755 /data/local/tmp/.ghostlock_run.sh\n"
+            "  SU=/data/local/tmp/.ghostlock_run.sh\n"
+            "  echo '[*] app route: running the stack steps directly (no su)' >>\"$LOG\"\n"
+            "  fi\n"
+            "  if [ -n \"$SU\" ]; then\n"
+            "    echo \"[*] su=$SU\" >>\"$LOG\"\n"
+            "  else\n"
+            "    echo '[!] su unavailable; skipping LSPosed stack' >>\"$LOG\"\n"
+            "  fi\n"
+            "  if [ -z \"$SU\" ] || [ ! -x \"$KSU_KSUD\" ]; then\n"
+            "    echo '[!] su or installed ksud missing; skipping LSPosed stack' >>\"$LOG\"\n"
+            "  else\n"
+            /* The packages live in the app's private data dir, which the shell
+             * domain cannot read. ksud runs in the ksu domain, so it can
+             * list and install them. One helper script, one call: a chain of
+             * su calls is both slower and more likely to stall. */
+            "    cat >/data/local/tmp/.ghostlock_modinstall.sh <<'MODINSTEOF'\n"
+            "#!/system/bin/sh\n"
+            "MODDIR=\"$1\"\n"
+            "KSUD=\"$2\"\n"
+            "rm -rf /data/adb/modules/zygisk_vector /data/adb/modules/zygisksu\n"
+            "for z in \"$MODDIR\"/*.zip; do\n"
+            "  [ -f \"$z\" ] || continue\n"
+            "  echo \"[*] installing module $z\"\n"
+            "  \"$KSUD\" module install \"$z\"\n"
+            "  echo \"[*] module install exit=$?\"\n"
+            "done\n"
+            "MODINSTEOF\n"
+            /* The installed ksud (/data/adb/ksu/bin/ksud) is the one that
+             * can install into /data/adb/ksu/bin (the app package's ksud
+             * cannot write there: that directory belongs to the KernelSU
+             * manager's mount). The packages themselves are read from a path
+             * every domain can reach, so the ksu domain can read them. */
+            "    timeout 60 \"$SU\" -c \"sh /data/local/tmp/.ghostlock_modinstall.sh \"$LSPD_MODULES\" \"$KSU_KSUD\"\" >>\"$LOG\" 2>&1\n"
+            "    echo '[*] module install step finished' >>\"$LOG\"\n"
+            /* App route: no second late-load here. It re-enforces SELinux, and
+             * the daemon start + zygote restart right below still need exec.
+             * The app route late-loads once, at the very end. */
+            "    if [ \"$SELINUX_FIXUP\" = \"1\" ]; then\n"
+            "    echo '[*] late-load (apply modules)' >>\"$LOG\"\n"
+            "    timeout 60 \"$SU\" -c \"$KSU_KSUD late-load --kmi $KMI --allow-shell\" >>\"$LOG\" 2>&1\n"
+            "    echo \"[*] late-load exit=$?\" >>\"$LOG\"\n"
+            "    fi\n"
+            "    echo '[*] starting zygisk daemon (post-fs-data)' >>\"$LOG\"\n"
+            /* post-fs-data needs the logcat/dmesg permissions the KernelSU
+             * manager's uid carries, so it runs the ksud from the app package
+             * (the installed one at /data/adb/ksu/bin/ksud lacks them). */
+            "    \"$SU\" -c \"nohup $KSU_KSUD post-fs-data >/data/local/tmp/pfsd.log 2>&1 &\" >>\"$LOG\" 2>&1\n"
+            /* ------------------------------------------------------------------
+             * zygisk 模块是在 zygote 启动的那一刻被 preload 的。运行时装模块
+             * 对已经跑着的 zygote 没有任何影响，所以必须重启 zygote，让
+             * ZygiskNext 的 injector 接管新起的那个（新的 zygote 带 -Xzygote
+             * 参数，Vector 的 zygisk 模块也一并被 preload）。
+             *
+             * 【硬前置条件】杀 zygote 之前，zygiskd 必须已经就绪：
+             *   - inject_state:1  → 它已经装好 execve hook，等着注入新 zygote
+             *   - modules64 含 zygisk_vector → Vector 的 zygisk 模块在列表里
+             * 少了这一步，新起的 zygote 不会被注入，system_server 就残缺 →
+             * rescue party → recovery（2026-10-22 实测 3 次里 2 次栽在这）。
+             * 不满足就**不杀 zygote**，本轮到此为止：宁可这次没激活 LSPosed，
+             * 也不把设备带进 recovery。
+             *
+             * 轮询全部在 su（ksu 域）里一次跑完：shell 域每 fork 一次 su 要
+             * 几百毫秒，逐次轮询根本跑不完。
+             * ------------------------------------------------------------------ */
+            "    cat >/data/local/tmp/.ghostlock_znready.sh <<'ZNREADYEOF'\n"
+            "#!/system/bin/sh\n"
+            "i=0\n"
+            "while [ $i -lt 60 ]; do\n"
+            "  s=$(/data/adb/ksu/bin/znctl status 2>/dev/null)\n"
+            "  case \"$s\" in\n"
+            "    *inject_state:1*) case \"$s\" in *zygisk_vector*) echo \"$s\"; exit 0;; esac;;\n"
+            "  esac\n"
+            "  sleep 1\n"
+            "  i=$((i+1))\n"
+            "done\n"
+            "exit 1\n"
+            "ZNREADYEOF\n"
+            "    ZREADY=$(timeout 90 \"$SU\" -c 'sh /data/local/tmp/.ghostlock_znready.sh' 2>/dev/null)\n"
+            "    if [ -z \"$ZREADY\" ]; then\n"
+            "      echo '[!] zygisk daemon not ready (no inject_state:1 / zygisk_vector); NOT restarting zygote' >>\"$LOG\"\n"
+            "      echo '[!] the LSPosed stack stays inactive this run; run it again once the daemon is up' >>\"$LOG\"\n"
+            "    else\n"
+            "      echo '[*] zygisk daemon ready' >>\"$LOG\"\n"
+            /* webview_zygote 是 zygote64 的子进程，杀 zygote64 会一起带走它；
+             * 只杀一个会让 framework 起不来 → recovery。 */
+            "      OLD_ZYGOTE=$(pidof zygote64 2>/dev/null | tr -d '\\r' | awk '{print $1}')\n"
+            "      if [ -n \"$OLD_ZYGOTE\" ]; then\n"
+            "        echo \"[*] killing zygote64 pid=$OLD_ZYGOTE\" >>\"$LOG\"\n"
+            "        kill -9 $OLD_ZYGOTE >>\"$LOG\" 2>&1\n"
+            "      fi\n"
+            /* 注入确认：等 zygote_states:1。没注入成功就**不**起 Vector
+             * daemon —— 它会重启 system_server，注入没稳时那一步必进 recovery。 */
+            "      cat >/data/local/tmp/.ghostlock_znwait.sh <<'ZNWAITEOF'\n"
+            "#!/system/bin/sh\n"
+            "i=0\n"
+            "while [ $i -lt 120 ]; do\n"
+            "  s=$(/data/adb/ksu/bin/znctl status 2>/dev/null)\n"
+            "  case \"$s\" in *zygote_states:1*) echo \"$s\"; exit 0;; esac\n"
+            "  sleep 1\n"
+            "  i=$((i+1))\n"
+            "done\n"
+            "exit 1\n"
+            "ZNWAITEOF\n"
+            "      ZSTAT=$(timeout 150 \"$SU\" -c 'sh /data/local/tmp/.ghostlock_znwait.sh' 2>/dev/null)\n"
+            "      ZGONE=0\n"
+            "      if [ -n \"$ZSTAT\" ]; then ZGONE=1; fi\n"
+            "      echo \"[*] zygote patched=$ZGONE\" >>\"$LOG\"\n"
+            "      if [ \"$ZGONE\" = \"1\" ]; then\n"
+            "        echo '[*] waiting 60s for the zygote injection to settle' >>\"$LOG\"\n"
+            "        sleep 60\n"
+            "        if [ -x /data/adb/modules/zygisk_vector/daemon ]; then\n"
+            "          echo '[*] starting Vector daemon (it restarts system_server once)' >>\"$LOG\"\n"
+            /* 必须用**绝对路径**：daemon 脚本内部用 dirname 定位自己的目录，
+             * 相对路径会让 -Djava.class.path=daemon.apk 变成相对路径 →
+             * UnsatisfiedLinkError → daemon 静默退出（2026-10-22 真机踩到）。
+             * toybox 的 unshare 不支持 --propagation slave，只能用 -m。 */
+            "          \"$SU\" -c 'unshare -m /data/adb/modules/zygisk_vector/daemon --system-server-max-retry=3 >/data/local/tmp/vectord.log 2>&1 &' >>\"$LOG\" 2>&1\n"
+            "          sleep 20\n"
+            "        fi\n"
+            "      else\n"
+            "        echo '[!] zygote not injected; skipping Vector daemon to avoid the system_server restart loop' >>\"$LOG\"\n"
+            "      fi\n"
+            "    fi\n"
+            "    if [ -x /data/adb/ksu/bin/znctl ]; then\n"
+            "      echo '== zygisk next status ==' >>\"$LOG\"\n"
+            "      /data/adb/ksu/bin/znctl status >>\"$LOG\" 2>&1\n"
+            "    fi\n"
+            "    echo '[+] LSPosed stack setup done' >>\"$LOG\"\n"
+            "  fi\n"
+            "else\n"
+            "  echo '[*] no LSPosed component packages selected; skipping the stack' >>\"$LOG\"\n"
+            "fi\n"
+            /* App route: the late-load is the last thing that happens. It loads
+             * kernelsu.ko (so `su` works from a normal shell later) but also
+             * re-enforces SELinux, which kills every exec from this domain —
+             * so nothing that needs to run may come after it. */
+            "if [ \"$SELINUX_FIXUP\" = \"0\" ]; then\n"
+            "  echo '[*] late-load (last step of the app route)' >>\"$LOG\"\n"
+            "  chmod 755 \"$KSUD\" 2>/dev/null\n"
+            "  timeout 60 \"$KSUD\" late-load --kmi \"$KMI\" --allow-shell >>\"$LOG\" 2>&1\n"
+            "  echo \"[*] late-load exit=$?\" >>\"$LOG\"\n"
+            "  if grep -q kernelsu /proc/modules 2>/dev/null; then\n"
+            "    echo '[+] KernelSU module loaded' >>\"$LOG\"\n"
+            "  else\n"
+            "    echo '[!] KernelSU module not loaded' >>\"$LOG\"\n"
+            "  fi\n"
             "fi\n"
             "else\n"
             "  echo '[!] fixup failed; SELinux left permissive' >>\"$LOG\"\n"
@@ -416,6 +662,8 @@ namespace ghostlock::attack {
             (config::runtime_config_snapshot().ksu_log_path.c_str()),
             session::g_exploit_session.profile.safe_mode() ? 1 : 0,
             (config::runtime_config_snapshot().ksud_path.c_str()),
+            (config::runtime_config_snapshot().lspd_modules_path.c_str()),
+            (config::runtime_config_snapshot().selinux_fixup ? "1" : "0"),
             (config::runtime_config_snapshot().debug_dir.c_str()));
         if (n < 0 || n >= static_cast<int32_t>(script.size())) {
             pr_warning("root script too long\n");

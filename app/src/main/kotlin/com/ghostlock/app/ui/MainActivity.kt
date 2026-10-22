@@ -16,12 +16,14 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.ghostlock.app.GhostlockApplication
 import com.ghostlock.app.R
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<GhostlockViewModel> {
@@ -76,7 +78,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        viewModel.refreshAccessStatus()
+        viewModel.refreshStatus()
     }
 
     private fun handleEffect(effect: GhostlockEffect) {
@@ -112,15 +114,33 @@ class MainActivity : ComponentActivity() {
                     ?.setPrimaryClip(ClipData.newPlainText("ghostlock-log", effect.text))
             }
 
+            is GhostlockEffect.InstallApk -> installApk(effect.path)
+
             is GhostlockEffect.KeepScreenAwake -> if (effect.enabled) {
                 window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             } else {
                 window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
+        }
+    }
 
-            GhostlockEffect.OpenShizuku -> packageManager
-                .getLaunchIntentForPackage(SHIZUKU_PACKAGE)
-                ?.let(::startActivity)
+    /**
+     * Hands a downloaded APK to the system installer through a content URI.
+     * `file://` URIs have been rejected since N, and the installer needs the
+     * read grant, so the path comes from our FileProvider.
+     */
+    private fun installApk(path: String) {
+        val file = File(path)
+        if (!file.isFile) {
+            Toast.makeText(this, R.string.module_fetch_kernelsu_missing, Toast.LENGTH_LONG).show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, "application/vnd.android.package-archive")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        runCatching { startActivity(intent) }.onFailure {
+            Toast.makeText(this, R.string.module_fetch_kernelsu_no_installer, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -151,10 +171,6 @@ class MainActivity : ComponentActivity() {
                     WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
         )
     }
-
-    private companion object {
-        const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
-    }
 }
 
 @Composable
@@ -171,7 +187,6 @@ private fun GhostlockRoute(
         actions = object : GhostlockActions {
             override fun onRun() = viewModel.onRun()
             override fun onProfileInvalid() = viewModel.onProfileInvalid()
-            override fun onStatusClick() = viewModel.onStatusClick()
             override fun onCloseExecutionSheet() = viewModel.onCloseExecutionSheet()
             override fun onCopyLogs() = viewModel.copyLogs()
             override fun onImportOffsetsHocon() = viewModel.importOffsetsHocon()
@@ -186,8 +201,11 @@ private fun GhostlockRoute(
             override fun onForceAttackTestChanged(enabled: Boolean) =
                 viewModel.toggleForceAttackTest(enabled)
 
-            override fun onShizukuChanged(enabled: Boolean) = viewModel.toggleShizuku(enabled)
             override fun onOpenManagerPicker() = viewModel.onOpenManagerPicker()
+            override fun onPickModuleZip() = viewModel.onPickModuleZip()
+            override fun onFetchModulePackage(key: String) = viewModel.onFetchModulePackage(key)
+            override fun onSetDownloadMirror() = viewModel.onSetDownloadMirror()
+            override fun onFetchKernelSuManager() = viewModel.onFetchKernelSuManager()
             override fun onCloseManagerPicker() = viewModel.onCloseManagerPicker()
             override fun onManagerSelected(pkg: String?) = viewModel.onManagerSelected(pkg)
             override fun onDialogItemSelected(index: Int) = viewModel.onDialogItemSelected(index)

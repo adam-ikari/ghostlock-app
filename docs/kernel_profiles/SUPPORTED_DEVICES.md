@@ -6,20 +6,7 @@
 > Root the device first, then follow [MEDIATEK.md](MEDIATEK.md) to obtain the
 > two physical addresses (`kernel_phys_load` / `kernel_phys_offset`).
 
-Rows marked **Shizuku recommended** ship a profile with `recommend_shizuku = 1`.
-The app automatically turns on the home-screen **Run via Shizuku** switch for
-them at every start; you can switch it off for the current session, and while it
-is off the app stops asking for Shizuku until the next start.
-
-Shizuku runs the exploit as the shell user, which has no seccomp filter, so the
-W3 seccomp bypass stage is skipped. To use it:
-
-1. Start Shizuku (for example over ADB) and keep it running.
-2. Tap the status card at the top of the app and grant access when prompted.
-
-Rows without the marker don't turn the switch on automatically, but **you can
-enable it manually on any device**. Running via Shizuku skips the W3 seccomp
-bypass there as well, so it saves time even where it isn't required.
+The app runs the exploit in its own process; no companion app is required.
 
 Sorted by kernel version (major.minor.patch), ascending. Rows with the same version keep their original relative order. Only two rows were out of place, and they have been moved:
 - `6.1.134` used to come before `6.1.115`; it now comes after `6.1.118`.
@@ -28,7 +15,7 @@ Sorted by kernel version (major.minor.patch), ascending. Rows with the same vers
 | Kernel                                                 | Devices                                                          |
 |--------------------------------------------------------|------------------------------------------------------------------|
 | `5.10.236-android12-9-00014-gb97c62c4e7d1`             | Sony Xperia 5 IV (SO-54C / PDX-224)                              |
-| `5.15.41-android13-8-g8dc4c75ab7d8-ab1673212412`       | MEIZU 20 Pro · Shizuku recommended                               |
+| `5.15.41-android13-8-g8dc4c75ab7d8-ab1673212412`       | MEIZU 20 Pro |
 | `5.15.119-android13-8-g6ff5097ee32a-ab1764665171`      | MEIZU 21 Note                                                    |
 | `5.15.167-android13-8-00017-gb1f32b310a30-ab12826353`  | Red Magic 8 Pro                                                  |
 | `5.15.178-android13-8-00025-g7feb0b0b7cd8-ab14134651`  | Sharp AQUOS R8 SH-R80                                            |
@@ -53,6 +40,7 @@ Sorted by kernel version (major.minor.patch), ascending. Rows with the same vers
 | `6.1.145-android14-11-g11c274d0441f-ab14259673`        | RedMagic 9(S) Pro (REDMAGICOS11.0.5MR1_GB)                       |
 | `6.1.145-android14-11-g74d1702dab4d-ab14669069`        | vivo T4, IQOO 12                                                 |
 | `6.1.145-android14-11-geaa643a2c0ee-ab14763719`        | Motorola Razr 50 Ultra / Motorola Razr+ 2024                     |
+| `6.1.145-android14-11-gbd17012cc2f7-ab14044926`        | Unihertz Titan 2                                                 |
 | `6.1.145-android14-11-g9b69cc399ae1-ab14819715`        | Motorola Edge 60 Fusion                                          |
 | `6.1.157-android14-11-ga8b0b542991e-ab15601211`        | Infinix GT 30 Pro (X6873)                                        |
 | `6.1.157-android14-11-gbd23337e42e7-ab14791245`        | Google Pixel 9a (Tensor G4), Google Pixel 7 (Tensor G2)          |
@@ -62,7 +50,7 @@ Sorted by kernel version (major.minor.patch), ascending. Rows with the same vers
 | `6.1.162-android14-11-g5e8b0cffebd1-ab15202165`        | Google Pixel 9a (Tensor G4)                                      |
 | `6.6.30-android15-8-g54dcbfbef792-ab12368803-4k`       | Red Magic Tablet 3 Pro                                           |
 | `6.6.30-android15-8-g6b55ce738535-4k`                  | Redmi 13c                                                        |
-| `6.6.30-android15-8-g24ffe62b0a0e-abogki387229724-4k`  | vivo X200 Pro · Shizuku recommended                              |
+| `6.6.30-android15-8-g24ffe62b0a0e-abogki387229724-4k`  | vivo X200 Pro |
 | `6.6.77-android15-8-g4a507830d890-ab13636293-4k`       | Xiaomi Civi 5 Pro, REDMI K90 / 4 Turbo, POCO F7                  |
 | `6.6.77-android15-8-g63ce7556864c-ab13994517-4k`       | Xiaomi 15                                                        |
 | `6.6.77-android15-8-gca30f3b4bef6-abogki440974771-4k`  | Xiaomi 15 Pro, REDMI K80 Pro / K80 Ultra                         |
