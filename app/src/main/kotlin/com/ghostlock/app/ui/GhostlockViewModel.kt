@@ -1,5 +1,6 @@
 package com.ghostlock.app.ui
 
+import com.ghostlock.app.data.ManagerScanner
 import android.net.Uri
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
@@ -12,7 +13,6 @@ import com.ghostlock.app.domain.model.OffsetImportResult
 import com.ghostlock.app.domain.model.ParseResult
 import com.ghostlock.app.domain.model.ProfileConfig
 import com.ghostlock.app.domain.model.ProfileFieldNode
-import com.ghostlock.app.domain.model.ShizukuStatus
 import com.ghostlock.app.domain.repository.GhostlockRepository
 import com.ghostlock.app.domain.repository.ProfileConfigController
 import com.ghostlock.app.domain.usecase.FormatLogUseCase
@@ -41,12 +41,25 @@ sealed interface GhostlockEffect {
     data class Toast(val resourceId: Int) : GhostlockEffect
     data class Clipboard(val text: String) : GhostlockEffect
     data class KeepScreenAwake(val enabled: Boolean) : GhostlockEffect
-    data object OpenShizuku : GhostlockEffect
+
+    /** Hand a downloaded APK to the system package installer. */
+    data class InstallApk(val path: String) : GhostlockEffect
 }
 
 private const val OverwriteSummaryLimit = 12
 
-enum class DocumentRequest { ImportOffsetsHocon, ImportOffsetsJson, BootImage, XblImage, PayloadImage, UefiImage, VendorBootImage }
+/** Stable ids of the pre-flight checks; the UI maps them to strings. */
+internal object RunCheckIds {
+    const val KERNEL = "kernel"
+    const val PROFILE = "profile"
+    const val KERNELSU_MANAGER = "kernelsu_manager"
+    const val ALREADY_ROOTED = "already_rooted"
+}
+
+enum class DocumentRequest {
+    ImportOffsetsHocon, ImportOffsetsJson, BootImage, XblImage, PayloadImage, UefiImage, VendorBootImage,
+    ModuleZip,
+}
 
 /** Options offered by [promptBootAttach], in display order. VENDOR_BOOT is
  * only ever added to that list for MediaTek devices */
@@ -61,6 +74,8 @@ class GhostlockViewModel(
     private val mutableState = MutableStateFlow(GhostlockUiState())
     private var initialized = false
     private var running = false
+    /** Set when a run reported that the device is already rooted. */
+    private var alreadyRooted = false
     private val loadKernelSnapshot = LoadKernelSnapshotUseCase(repository)
     private val selectCpuPairUseCase = SelectCpuPairUseCase(repository)
     private val importOffsetsUseCase = ImportOffsetsUseCase(repository)
@@ -88,61 +103,34 @@ class GhostlockViewModel(
     fun initialize() {
         if (initialized) return
         initialized = true
-        repository.setShizukuStatusListener { refreshAccessStatus() }
         viewModelScope.launch {
             refreshSnapshot()
-            applyRecommendedShizuku()
-            maybeSuggestShizukuForW3()
+            maybeReportInterruptedRun()
         }
-    }
-
-    private var recommendedShizukuApplied = false
-
-    /**
-     * Kernels that recommend Shizuku start with the toggle on at every launch;
-     * a manual switch-off still applies for the rest of the session.
-     */
-    private fun applyRecommendedShizuku() {
-        if (recommendedShizukuApplied) return
-        recommendedShizukuApplied = true
-        val snapshot = kernelSnapshot ?: return
-        if (!snapshot.recommendShizuku || state.value.shizukuEnabled) return
-        toggleShizuku(true)
     }
 
     private var w3HintChecked = false
 
     /**
-     * The previous run's native log survives export settings; when it failed
-     * at the W3 seccomp bypass in-process, suggest switching to Shizuku.
+     * The previous run's native log survives export settings; when it was
+     * interrupted (usually by a kernel panic) the app says so on the next
+     * launch instead of silently starting over.
      */
-    private suspend fun maybeSuggestShizukuForW3() {
+    private suspend fun maybeReportInterruptedRun() {
         if (w3HintChecked) return
         w3HintChecked = true
         val step = runCatching { repository.lastRunStuckStep() }.getOrNull() ?: return
-        if (state.value.shizukuEnabled) return
-        /* Any interrupted step is reported; only a W3 stall offers Shizuku,
-         * because Shizuku (shell uid, no seccomp) skips exactly that stage. */
-        val isW3 = step.startsWith("w3")
         mutableState.update {
             it.copy(
                 dialogVisible = true,
-                dialogType = if (isW3) DialogType.CONFIRM else DialogType.NOTICE,
-                dialogTitleRes = if (isW3) {
-                    R.string.w3_shizuku_hint_title
-                } else {
-                    R.string.run_interrupted_title
-                },
-                dialogMessageRes = if (isW3) {
-                    R.string.w3_shizuku_hint_message
-                } else {
-                    R.string.run_interrupted_message
-                },
+                dialogType = DialogType.NOTICE,
+                dialogTitleRes = R.string.run_interrupted_title,
+                dialogMessageRes = R.string.run_interrupted_message,
             )
         }
     }
 
-    fun refreshAccessStatus() {
+    fun refreshStatus() {
         if (initialized) viewModelScope.launch { refreshSnapshot() }
     }
 
@@ -831,16 +819,6 @@ class GhostlockViewModel(
         mutableState.update { it.copy(forceAttackTestEnabled = enabled) }
     }
 
-    fun toggleShizuku(enabled: Boolean) {
-        repository.setShizukuEnabled(enabled)
-        mutableState.update { it.copy(shizukuEnabled = enabled) }
-        if (!enabled && kernelSnapshot?.recommendShizuku == true) {
-            send(GhostlockEffect.Toast(R.string.shizuku_recommended_hint))
-        }
-        // The grant dialog lands in another app, so the status is re-read and
-        // onResume() refreshes it again when the dialog closes.
-        viewModelScope.launch { refreshSnapshot() }
-    }
 
     fun onOpenManagerPicker() {
         mutableState.update { it.copy(managerPickerVisible = true) }
@@ -866,32 +844,121 @@ class GhostlockViewModel(
 
     fun onRun() = runExploit()
 
+    /**
+     * Picks a Zygisk / LSPosed module zip (official releases) to install.
+     *
+     * The app ships neither: both are GPL-3.0 while this app is Apache-2.0.
+     */
+    fun onPickModuleZip() = send(GhostlockEffect.PickDocument(DocumentRequest.ModuleZip))
+
+    /** True while the download-proxy input dialog owns the confirm button. */
+    private var mirrorInputPending = false
+
+    /**
+     * Sets the reverse-proxy prefix used for component downloads.
+     *
+     * Upstream lives on GitHub, which is slow or unreachable on some networks;
+     * a proxy prefix routes both the update.json and the zip through it. The
+     * proxy sees and can replace the package, and these packages are installed
+     * as root — hence the warning in the hint, and the https-only rule in
+     * ComponentFetcher.
+     */
+    /**
+     * Fetches the KernelSU manager APK and opens the package installer.
+     *
+     * No root is involved on purpose: installing an app is the user's decision,
+     * and a root-held `pm install` would install silently behind their back.
+     * Without the manager there is no `libksud.so` to late-load, so this is the
+     * one component that has to end up as a real installed app.
+     */
+    fun onFetchKernelSuManager() {
+        viewModelScope.launch(Dispatchers.IO) {
+            appendLog("KernelSU manager: fetching from the upstream release")
+            val path = runCatching { repository.fetchKernelSuManager { appendLog(it) } }
+                .getOrElse { error ->
+                    appendLog("KernelSU manager: ${error.message}")
+                    null
+                }
+            if (path == null) {
+                appendLog("KernelSU manager: failed (see the lines above)")
+            } else {
+                send(GhostlockEffect.InstallApk(path))
+            }
+        }
+    }
+
+    fun onSetDownloadMirror() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = runCatching { repository.downloadMirror() }.getOrDefault("")
+            withContext(Dispatchers.Main) {
+                mirrorInputPending = true
+                mutableState.update {
+                    it.copy(
+                        dialogVisible = true,
+                        dialogType = DialogType.INPUT,
+                        dialogTitleRes = R.string.download_mirror_title,
+                        dialogMessageRes = R.string.download_mirror_hint,
+                        dialogInput = current,
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Fetches one component package from the release its author publishes.
+     *
+     * ZygiskNext cannot be bundled (all rights reserved since v4-0.9.2, "no
+     * redistribution"), so the app downloads it instead of carrying it. Vector
+     * is fetched the same way so both buttons behave identically; a package
+     * that is already staged is skipped rather than replaced.
+     */
+    fun onFetchModulePackage(key: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            appendLog("component package '$key': fetching from upstream release")
+            val ok = runCatching { repository.fetchModulePackage(key) { appendLog(it) } }
+                .getOrElse { error ->
+                    appendLog("component package '$key': ${error.message}")
+                    false
+                }
+            appendLog(
+                if (ok) "component package '$key': ready — pick nothing, just run"
+                else "component package '$key': failed (see the lines above)",
+            )
+        }
+    }
+
+    /**
+     * The native pre-attack check skips the exploit when a KernelSU module is
+     * already loaded; that line is the only reliable "already rooted" signal
+     * the app can see without a shell, so it is folded into the checks.
+     */
+    private fun noteRootState(line: String) {
+        if (!line.contains("already has root")) return
+        alreadyRooted = true
+        mutableState.update { state ->
+            state.copy(
+                runChecks = state.runChecks.map { check ->
+                    if (check.id == RunCheckIds.ALREADY_ROOTED) {
+                        check.copy(ok = false)
+                    } else {
+                        check
+                    }
+                },
+            )
+        }
+    }
+
     /** Explains why the run button is greyed out. */
     fun onProfileInvalid() {
         val state = state.value
         val messageRes = when {
             !state.executionHasProfile -> R.string.run_blocked_no_profile
-            state.shizukuEnabled && state.shizukuStatus != ShizukuStatus.READY ->
-                R.string.run_blocked_shizuku
-
             else -> R.string.profile_invalid
         }
         send(GhostlockEffect.Toast(messageRes))
     }
 
-    fun onStatusClick() {
-        val snapshot = kernelSnapshot ?: return
-        /* shizukuEnabled already carries the profile suggestion unless the
-         * user overrode it (PROFILE-SUGGEST-01). */
-        if (!snapshot.shizukuEnabled) return
-        when (snapshot.shizukuStatus) {
-            ShizukuStatus.NOT_RUNNING -> send(GhostlockEffect.OpenShizuku)
-            ShizukuStatus.PERMISSION_REQUIRED -> repository.requestShizukuPermission()
-            ShizukuStatus.NOT_REQUIRED,
-            ShizukuStatus.READY,
-                -> Unit
-        }
-    }
 
     private fun runExploit() {
         val snapshot = kernelSnapshot ?: return
@@ -902,19 +969,14 @@ class GhostlockViewModel(
             }
             return
         }
-        val useShizuku = snapshot.shizukuEnabled
-        if (useShizuku && snapshot.shizukuStatus != ShizukuStatus.READY) {
-            onStatusClick()
-            return
-        }
         val pair = snapshot.cpuPairs.getOrNull(snapshot.selectedCpuPair) ?: return
         if (!beginOperation()) return
         send(GhostlockEffect.KeepScreenAwake(true))
-        appendLog("==== start ${if (useShizuku) "Shizuku/V20" else "base"} ====")
+        appendLog("==== start base ====")
         appendLog("cpu pair: ${snapshot.cpuPairLabels.getOrElse(snapshot.selectedCpuPair) { pair.toString() }}")
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val code = runExploitUseCase(pair, useShizuku, ::appendLog)
+                val code = runExploitUseCase(pair, ::appendLog)
                 appendLog(if (code == 0) "result: exploit completed" else "result: exploit failed (exit code=$code)")
                 appendLog("exit code=$code")
             } finally {
@@ -1000,6 +1062,7 @@ class GhostlockViewModel(
             DocumentRequest.UefiImage -> stageUefi(uri)
             DocumentRequest.VendorBootImage -> stageVendorBoot(uri)
             DocumentRequest.PayloadImage -> stagePayload(uri)
+            DocumentRequest.ModuleZip -> stageModuleZip(uri)
             DocumentRequest.ImportOffsetsHocon, DocumentRequest.ImportOffsetsJson -> Unit
         }
     }
@@ -1010,6 +1073,7 @@ class GhostlockViewModel(
             DocumentRequest.ImportOffsetsHocon, DocumentRequest.ImportOffsetsJson ->
                 importDocuments(uris)
 
+            DocumentRequest.ModuleZip -> uris.firstOrNull()?.let(::stageModuleZip)
             DocumentRequest.BootImage -> uris.firstOrNull()?.let(::stageBoot)
             DocumentRequest.XblImage -> uris.firstOrNull()?.let(::stageXbl)
             DocumentRequest.UefiImage -> uris.firstOrNull()?.let(::stageUefi)
@@ -1042,16 +1106,38 @@ class GhostlockViewModel(
     fun onDialogConfirm(value: String) {
         val dialogType = state.value.dialogType
         val renameTarget = state.value.userProfileRenameTarget
+        val mirrorPending = mirrorInputPending
+        mirrorInputPending = false
         dismissDialog(clearConfirmation = false)
         when {
             renameTarget != null -> renameUserProfile(renameTarget, value)
+            mirrorPending -> saveDownloadMirror(value)
             dialogType == DialogType.INPUT -> parseUrl(value)
-            dialogType == DialogType.CONFIRM -> toggleShizuku(true)
             else -> Unit
         }
     }
 
-    fun onDialogDismiss() = dismissDialog()
+    fun onDialogDismiss() {
+        mirrorInputPending = false
+        dismissDialog()
+    }
+
+    private fun saveDownloadMirror(value: String) {
+        val prefix = value.trim()
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { repository.setDownloadMirror(prefix) }
+                .onSuccess {
+                    appendLog(
+                        if (prefix.isEmpty()) {
+                            "downloads: direct (no proxy)"
+                        } else {
+                            "downloads: via proxy $prefix"
+                        },
+                    )
+                }
+                .onFailure { appendLog("downloads: cannot save proxy (${it.message})") }
+        }
+    }
 
     fun onDialogDismissFinished() {
         if (!state.value.dialogVisible) {
@@ -1073,6 +1159,7 @@ class GhostlockViewModel(
                 ?: return@withContext null
             runCatching { profileController.load(snapshot.kernelRelease, pair) }.getOrNull()
         }
+        val managers = withContext(Dispatchers.IO) { repository.installedManagers() }
         kernelSnapshot = snapshot
         mutableState.update {
             it.copy(
@@ -1084,14 +1171,61 @@ class GhostlockViewModel(
                 cpuPairIndex = snapshot.selectedCpuPair,
                 safeModeEnabled = snapshot.safeModeEnabled,
                 forceAttackTestEnabled = snapshot.forceAttackTest,
-                shizukuEnabled = snapshot.shizukuEnabled,
-                shizukuStatus = snapshot.shizukuStatus,
                 profileInvalidPaths = loaded?.invalidPaths ?: emptySet(),
                 executionHasProfile = loaded?.hasProfile ?: false,
                 customCpuPair = loaded?.let(::customCpuPairOf),
                 selectedManagerPackage = repository.selectedManagerPackage(),
+                runChecks = runChecksOf(
+                    snapshot = snapshot,
+                    hasProfile = loaded?.hasProfile == true,
+                    invalidPaths = loaded?.invalidPaths ?: emptySet(),
+                    managers = managers,
+                ),
             )
         }
+    }
+
+    /**
+     * Pre-flight requirements of the one-tap run.
+     *
+     * Blocking checks gate the run (the app greys the button out); the rest
+     * are advisories, e.g. a missing KernelSU manager still yields uid 0, it
+     * just cannot load modules afterwards.
+     */
+    private fun runChecksOf(
+        snapshot: com.ghostlock.app.domain.model.KernelSnapshot,
+        hasProfile: Boolean,
+        invalidPaths: Set<String>,
+        managers: List<ManagerScanner.Candidate>,
+    ): List<com.ghostlock.app.domain.model.RunCheck> = buildList {
+        add(
+            com.ghostlock.app.domain.model.RunCheck(
+                id = RunCheckIds.KERNEL,
+                ok = snapshot.kernelSupported,
+                blocking = true,
+            ),
+        )
+        add(
+            com.ghostlock.app.domain.model.RunCheck(
+                id = RunCheckIds.PROFILE,
+                ok = hasProfile && invalidPaths.isEmpty(),
+                blocking = true,
+            ),
+        )
+        add(
+            com.ghostlock.app.domain.model.RunCheck(
+                id = RunCheckIds.KERNELSU_MANAGER,
+                ok = managers.any { it.hasKsud },
+                blocking = false,
+            ),
+        )
+        add(
+            com.ghostlock.app.domain.model.RunCheck(
+                id = RunCheckIds.ALREADY_ROOTED,
+                ok = !alreadyRooted,
+                blocking = false,
+            ),
+        )
     }
 
     private fun importDocuments(uris: List<String>) {
@@ -1269,6 +1403,21 @@ class GhostlockViewModel(
                 appendLog("parse error: ${error.message}")
                 appendLog("result: parse failed")
                 showNotice(R.string.parse_result_title, R.string.parse_failed)
+            }
+        }
+    }
+
+    /** Copies a picked module zip into the runtime home's modules/ directory. */
+    private fun stageModuleZip(uri: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val name = uri.substringAfterLast('/').ifBlank { "module.zip" }
+                val path = repository.stageModuleZip(uri, name)
+                appendLog("module zip staged: $path")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                appendLog("module zip failed: ${error.message}")
             }
         }
     }
@@ -1490,6 +1639,7 @@ class GhostlockViewModel(
     }
 
     private fun appendLog(line: String) {
+        noteRootState(line)
         /* The final result lines are Kotlin-side; tag them so they read as <k>. */
         val tagged = if (line.startsWith("result:")) "<k> $line" else line
         val entry = formatLog(tagged)
@@ -1529,7 +1679,7 @@ class GhostlockViewModel(
         LogTone.Warning -> 0xFFFFC94D.toInt()
         LogTone.Progress -> 0xFF60A5FA.toInt()
         LogTone.Kotlin -> 0xFF5EEAD4.toInt()
-        LogTone.Shizuku -> 0xFFC084FC.toInt()
+        LogTone.Shell -> 0xFFC084FC.toInt()
         LogTone.Default -> -1
     }
 

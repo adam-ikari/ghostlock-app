@@ -88,6 +88,23 @@ static void runtime_config_init_paths(config::RuntimeConfig *config) {
         }
         config->ksud_path = std::move(escaped);
     }
+
+    /* Directory with the ZygiskNext / Vector component packages. The root
+     * script is exec'd without the environment, so the path is embedded in the
+     * script text instead of being read from the environment there. */
+    const char *lspd_modules = getenv("GHOSTLOCK_LSPD_MODULES");
+    if (lspd_modules && lspd_modules[0]) {
+        std::string escaped;
+        for (const char *p = lspd_modules; *p; p++) {
+            if (*p == '\'') escaped += "'\\''";
+            else escaped += *p;
+        }
+        config->lspd_modules_path = std::move(escaped);
+    }
+
+    /* "0" keeps SELinux permissive (no policy reload) for this run. */
+    const char *selinux_fixup = getenv("GHOSTLOCK_SELINUX_FIXUP");
+    if (selinux_fixup && selinux_fixup[0] == '0') config->selinux_fixup = 0;
 }
 
 /* Capture all process environment and CPU/path choices exactly once. Input:

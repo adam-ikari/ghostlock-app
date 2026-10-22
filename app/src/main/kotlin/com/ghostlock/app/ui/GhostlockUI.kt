@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import com.ghostlock.app.runtime.ComponentFetcher
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -63,7 +64,7 @@ import com.ghostlock.app.data.ManagerScanner
 import com.ghostlock.app.domain.model.CpuPair
 import com.ghostlock.app.domain.model.ExecutionFieldValue
 import com.ghostlock.app.domain.model.ProfileFieldNode
-import com.ghostlock.app.domain.model.ShizukuStatus
+import com.ghostlock.app.domain.model.RunCheck
 import com.ghostlock.app.domain.model.UserProfileFile
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -107,8 +108,6 @@ data class GhostlockUiState(
     val kernelRelease: String = "",
     val socName: String = "",
     val kernelSupported: Boolean = false,
-    val shizukuEnabled: Boolean = false,
-    val shizukuStatus: ShizukuStatus = ShizukuStatus.NOT_REQUIRED,
     val running: Boolean = false,
     val cpuPairLabels: List<String> = emptyList(),
     val cpuPairIndex: Int = 0,
@@ -177,16 +176,17 @@ data class GhostlockUiState(
     val managerCandidates: List<ManagerScanner.Candidate> = emptyList(),
     val selectedManagerPackage: String? = null,
     val managerPickerVisible: Boolean = false,
+    /** Pre-flight requirements of the one-tap run. */
+    val runChecks: List<com.ghostlock.app.domain.model.RunCheck> = emptyList(),
 )
 
-enum class DialogType { NONE, LIST, INPUT, CONFIRM, NOTICE }
+enum class DialogType { NONE, LIST, INPUT, NOTICE }
 
 data class GhostlockLogLine(val text: String, val color: Int)
 
 interface GhostlockActions {
     fun onRun()
     fun onProfileInvalid()
-    fun onStatusClick()
     fun onCloseExecutionSheet()
     fun onCopyLogs()
     fun onImportOffsetsHocon()
@@ -197,7 +197,11 @@ interface GhostlockActions {
     fun onCpuPairSelected(index: Int)
     fun onSafeModeChanged(enabled: Boolean)
     fun onForceAttackTestChanged(enabled: Boolean)
-    fun onShizukuChanged(enabled: Boolean)
+    fun onPickModuleZip()
+    fun onFetchModulePackage(key: String)
+    fun onSetDownloadMirror()
+    fun onFetchKernelSuManager()
+
     fun onOpenManagerPicker()
     fun onCloseManagerPicker()
     fun onManagerSelected(pkg: String?)
@@ -686,32 +690,6 @@ private fun GhostlockDialog(
                     }
                 }
 
-                DialogType.CONFIRM -> {
-                    Text(
-                        text = stringResource(state.dialogMessageRes),
-                        modifier = Modifier.fillMaxWidth(),
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 16.dp),
-                    ) {
-                        TextButton(
-                            modifier = Modifier.weight(1f),
-                            text = stringResource(R.string.cancel),
-                            onClick = actions::onDialogDismiss,
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        TextButton(
-                            modifier = Modifier.weight(1f),
-                            text = stringResource(R.string.w3_shizuku_hint_enable),
-                            colors = ButtonDefaults.textButtonColorsPrimary(),
-                            onClick = { actions.onDialogConfirm("") },
-                        )
-                    }
-                }
 
                 DialogType.NOTICE -> {
                     Text(
@@ -807,10 +785,7 @@ private fun MainContent(
         item(key = "run") {
             RunButton(
                 running = state.running,
-                supported = state.kernelSupported &&
-                        state.executionHasProfile &&
-                        (!state.shizukuEnabled ||
-                                state.shizukuStatus == ShizukuStatus.READY),
+                supported = state.kernelSupported && state.executionHasProfile,
                 profileValid = state.profileInvalidPaths.isEmpty(),
                 labelRes = R.string.action_run,
                 onClick = actions::onRun,
@@ -832,11 +807,14 @@ private fun ControlPanel(
             supported = state.kernelSupported,
             profileAvailable = state.executionHasProfile,
             profileValid = state.profileInvalidPaths.isEmpty(),
-            shizukuEnabled = state.shizukuEnabled,
-            shizukuStatus = state.shizukuStatus,
             onParametersClick = actions::onOpenParameters,
-            onShizukuClick = actions::onStatusClick,
             modifier = Modifier.fillMaxWidth(),
+        )
+        RunCheckCard(
+            checks = state.runChecks,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp),
         )
         DeviceInfoCard(
             deviceName = state.deviceName,
@@ -873,31 +851,36 @@ private fun ControlPanel(
                     onSelectedIndexChange = actions::onCpuPairSelected,
                 )
             }
+            ArrowPreference(
+                title = stringResource(R.string.module_zips_fetch_zygisknext_label),
+                summary = stringResource(R.string.module_zips_fetch_zygisknext_summary),
+                onClick = { actions.onFetchModulePackage(ComponentFetcher.ZygiskNextKey) },
+            )
+            ArrowPreference(
+                title = stringResource(R.string.module_zips_fetch_vector_label),
+                summary = stringResource(R.string.module_zips_fetch_vector_summary),
+                onClick = { actions.onFetchModulePackage(ComponentFetcher.VectorKey) },
+            )
+            ArrowPreference(
+                title = stringResource(R.string.module_fetch_kernelsu_label),
+                summary = stringResource(R.string.module_fetch_kernelsu_summary),
+                onClick = actions::onFetchKernelSuManager,
+            )
+            ArrowPreference(
+                title = stringResource(R.string.download_mirror_label),
+                summary = stringResource(R.string.download_mirror_summary),
+                onClick = actions::onSetDownloadMirror,
+            )
+            ArrowPreference(
+                title = stringResource(R.string.module_zips_label),
+                summary = stringResource(R.string.module_zips_summary),
+                onClick = actions::onPickModuleZip,
+            )
             SwitchPreference(
                 checked = state.safeModeEnabled,
                 onCheckedChange = actions::onSafeModeChanged,
                 title = stringResource(R.string.safe_mode_label),
                 summary = stringResource(R.string.safe_mode_summary),
-            )
-            /* PROFILE-SUGGEST-01: the profile suggestion seeds the toggle but no
-             * longer hides it; an explicit user choice overrides either way. */
-            SwitchPreference(
-                checked = state.shizukuEnabled,
-                onCheckedChange = actions::onShizukuChanged,
-                title = stringResource(R.string.shizuku_label),
-                summary = stringResource(
-                    when {
-                        !state.shizukuEnabled -> R.string.shizuku_summary
-                        state.shizukuStatus == ShizukuStatus.READY -> R.string.shizuku_status_ready
-                        state.shizukuStatus == ShizukuStatus.PERMISSION_REQUIRED ->
-                            R.string.shizuku_status_permission_required
-
-                        state.shizukuStatus == ShizukuStatus.NOT_RUNNING ->
-                            R.string.shizuku_status_not_running
-
-                        else -> R.string.shizuku_status_checking
-                    },
-                ),
             )
         }
         Card(modifier = modifier.padding(top = 12.dp)) {
@@ -915,14 +898,10 @@ private fun ActivationStatusCard(
     supported: Boolean,
     profileAvailable: Boolean,
     profileValid: Boolean,
-    shizukuEnabled: Boolean,
-    shizukuStatus: ShizukuStatus,
     onParametersClick: () -> Unit,
-    onShizukuClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val accessReady = !shizukuEnabled || shizukuStatus == ShizukuStatus.READY
-    val ready = supported && profileAvailable && profileValid && accessReady
+    val ready = supported && profileAvailable && profileValid
     val missing = !supported || !profileAvailable
     val (backgroundColor, title, icon) = when {
         ready -> Triple(
@@ -947,26 +926,17 @@ private fun ActivationStatusCard(
                 isSystemInDarkTheme() -> Color(0xFF3E2F1B)
                 else -> Color(0xFFFFF0DB)
             },
-            if (!profileValid) R.string.kernel_profile_invalid else R.string.shizuku_label,
+            R.string.kernel_profile_invalid,
             Icons.Rounded.ErrorOutline,
         )
     }
     val summary = when {
-        ready && shizukuEnabled -> R.string.kernel_profile_ready_shizuku
         ready -> R.string.kernel_profile_ready
         !supported -> R.string.kernel_unsupported_summary
         !profileAvailable -> R.string.kernel_profile_required_summary
-        !profileValid -> R.string.kernel_profile_invalid_summary
-        shizukuStatus == ShizukuStatus.PERMISSION_REQUIRED ->
-            R.string.shizuku_status_permission_required
-
-        else -> R.string.shizuku_status_not_running
+        else -> R.string.kernel_profile_invalid_summary
     }
-    val action = if (supported && profileAvailable && profileValid && !accessReady) {
-        onShizukuClick
-    } else {
-        onParametersClick
-    }
+    val action = onParametersClick
     Card(
         modifier = modifier,
         colors = CardDefaults.defaultColors(color = backgroundColor),
@@ -1020,14 +990,103 @@ private fun ActivationStatusCard(
     }
 }
 
+/**
+ * Pre-flight checklist for the one-tap run: every dependency and system
+ * condition the run needs, with the blocking ones gating the button.
+ */
+@Composable
+private fun RunCheckCard(
+    checks: List<RunCheck>,
+    modifier: Modifier = Modifier,
+) {
+    if (checks.isEmpty()) return
+    val blockingFailed = checks.count { !it.ok && it.blocking }
+    Card(
+        modifier = modifier,
+        insideMargin = PaddingValues(16.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.run_checks_title),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = stringResource(R.string.run_checks_summary),
+                fontSize = 13.sp,
+                color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+            )
+            checks.forEach { check ->
+                val labelRes = when (check.id) {
+                    RunCheckIds.KERNEL -> R.string.check_kernel
+                    RunCheckIds.PROFILE -> R.string.check_profile
+                    RunCheckIds.KERNELSU_MANAGER -> R.string.check_kernelsu_manager
+                    RunCheckIds.ALREADY_ROOTED -> R.string.check_already_rooted
+                    else -> R.string.check_kernel
+                }
+                val stateRes = if (check.ok) {
+                    R.string.check_state_ok
+                } else if (check.blocking) {
+                    R.string.check_state_blocked
+                } else {
+                    R.string.check_state_optional
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Icon(
+                        imageVector = if (check.ok) {
+                            Icons.Rounded.CheckCircleOutline
+                        } else {
+                            Icons.Rounded.ErrorOutline
+                        },
+                        contentDescription = null,
+                        tint = if (check.ok) {
+                            MiuixTheme.colorScheme.primary
+                        } else {
+                            MiuixTheme.colorScheme.error
+                        },
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(labelRes),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MiuixTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = stringResource(stateRes),
+                            fontSize = 13.sp,
+                            color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                        )
+                    }
+                }
+            }
+            if (blockingFailed > 0) {
+                Text(
+                    text = stringResource(R.string.run_checks_blocked, blockingFailed),
+                    fontSize = 13.sp,
+                    color = MiuixTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun DeviceInfoCard(
     deviceName: String,
     socName: String,
     kernelRelease: String,
     modifier: Modifier = Modifier,
-) {
-    Card(
+) {    Card(
         modifier = modifier,
         insideMargin = PaddingValues(16.dp),
     ) {

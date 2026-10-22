@@ -29,8 +29,15 @@ object ProfileMerger {
         pair: CpuPairView,
         routePresets: Map<String, ValueMap>,
     ): ValueMap {
+        /* The tuning preset and the route presets are shared across profiles
+         * (the exporter resolves every builtin with the same instances), while
+         * `deepMergeValues` merges in place. Handing the shared maps to the
+         * merge would let one profile's own `execution` block overwrite the
+         * preset and leak into every profile resolved afterwards. Copy them. */
         val defaults = valueMapOf("release" to deviceRelease).apply {
-            if (tuningExecution != null) put("execution", tuningExecution)
+            if (tuningExecution != null) {
+                put("execution", tuningExecution.copyValue() as? ValueMap ?: tuningExecution)
+            }
         }
         val resolved = mergeSource(
             mergeSource(
@@ -62,7 +69,9 @@ object ProfileMerger {
             val defaults = routePresets[route] ?: continue
             val existing = routes[route].asValueMap()
             if (existing == null) {
-                routes[route] = defaults
+                /* Same reason as the tuning preset above: the preset map is
+                 * shared, and the branch below may write into it. */
+                routes[route] = defaults.copyValue() as? ValueMap ?: defaults
                 continue
             }
             for ((key, value) in defaults) {

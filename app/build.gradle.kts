@@ -25,6 +25,13 @@ val gitVersionCode = runCatching {
     1
 }
 
+/* The commit count is a convenient versionCode, but it moves backwards when the
+ * history is rewritten or squashed, and an update install refuses a lower
+ * versionCode. VERSION_CODE pins it explicitly; the count stays the fallback
+ * for a checkout that has no property. */
+val appVersionCode = (project.findProperty("VERSION_CODE") as String?)
+    ?.trim()?.toIntOrNull() ?: gitVersionCode
+
 val buildInfoSrc = layout.buildDirectory.dir("generated/source/buildInfo")
 
 val generateBuildInfo = tasks.register("generateBuildInfo") {
@@ -66,8 +73,15 @@ android {
     defaultConfig {
         applicationId = "com.ghostlock.app"
         minSdk = 31
-        targetSdk = 37
-        versionCode = gitVersionCode
+        /* Upstream targets 37 (Android 17 preview). A targetSdk newer than the
+         * platform the device runs installs in a restricted state on that
+         * platform: the package stays disabled, its components do not resolve
+         * and no data directory is created (verified on Android 16 / SDK 36:
+         * "Activity class ... does not exist" right after a successful
+         * install). Targeting the platform we ship on keeps the app usable
+         * there; compileSdk stays at 37 so the newer APIs remain available. */
+        targetSdk = 36
+        versionCode = appVersionCode
         versionName = appVersionName
     }
     androidResources {
@@ -81,12 +95,19 @@ android {
             kotlin.directories.add(buildInfoSrc.get().asFile.absolutePath)
         }
     }
-    val properties = Properties()
-    runCatching { properties.load(project.rootProject.file("local.properties").inputStream()) }
-    val keystorePath = (properties.getProperty("KEYSTORE_PATH") ?: System.getenv("KEYSTORE_PATH"))?.trim()?.takeIf { it.isNotEmpty() }
-    val keystorePwd = properties.getProperty("KEYSTORE_PASS") ?: System.getenv("KEYSTORE_PASS")
-    val alias = properties.getProperty("KEY_ALIAS") ?: System.getenv("KEY_ALIAS")
-    val pwd = properties.getProperty("KEY_PASSWORD") ?: System.getenv("KEY_PASSWORD")
+    // Signing inputs come from gradle.properties (committed on purpose: this is a
+    // self-use build, and losing the keystore means no update can be installed
+    // over an existing copy). local.properties still works for local overrides.
+    val localProps = Properties()
+    runCatching { localProps.load(project.rootProject.file("local.properties").inputStream()) }
+    fun signingSetting(name: String): String? =
+        (project.findProperty(name) as String?)?.trim()?.takeIf { it.isNotEmpty() }
+            ?: localProps.getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }
+            ?: System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
+    val keystorePath = signingSetting("KEYSTORE_PATH")
+    val keystorePwd = signingSetting("KEYSTORE_PASS")
+    val alias = signingSetting("KEY_ALIAS")
+    val pwd = signingSetting("KEY_PASSWORD")
     val keystoreFile = keystorePath?.let(::file)?.takeIf { it.isFile && it.length() > 0L }
     if (keystoreFile != null) {
         signingConfigs {
@@ -150,7 +171,7 @@ androidComponents {
 }
 
 base {
-    archivesName.set("$appName-v$appVersionName($gitVersionCode)")
+    archivesName.set("$appName-v$appVersionName($appVersionCode)")
 }
 
 kotlin {
@@ -184,8 +205,6 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation("com.typesafe:config:1.4.9")
     implementation("org.apache.commons:commons-compress:1.28.0")
-    implementation("dev.rikka.shizuku:api:13.1.5")
-    implementation("dev.rikka.shizuku:provider:13.1.5")
     implementation("top.yukonga.miuix.kmp:miuix-ui:0.9.4")
     implementation("top.yukonga.miuix.kmp:miuix-nav:0.9.4")
     implementation("top.yukonga.miuix.kmp:miuix-icons:0.9.4")

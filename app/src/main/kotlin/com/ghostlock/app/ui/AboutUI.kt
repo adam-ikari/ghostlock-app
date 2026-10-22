@@ -176,18 +176,13 @@ internal fun AboutScreen(onBack: () -> Unit) {
                 SmallTitle(text = stringResource(R.string.about_open_source))
             }
             item(key = "license") {
-                AboutLink("Apache License 2.0", "github.com/YuKongA/ghostlock-app/LICENSE") {
+                AboutLink("PolyForm Noncommercial 1.0.0", "github.com/YuKongA/ghostlock-app/LICENSE") {
                     uriHandler.openUri("https://github.com/YuKongA/ghostlock-app/blob/main/LICENSE")
                 }
             }
             item(key = "miuix") {
                 AboutLink("miuix", "github.com/compose-miuix-ui/miuix") {
                     uriHandler.openUri("https://github.com/compose-miuix-ui/miuix")
-                }
-            }
-            item(key = "shizuku") {
-                AboutLink("Shizuku", "github.com/RikkaApps/Shizuku") {
-                    uriHandler.openUri("https://github.com/RikkaApps/Shizuku")
                 }
             }
             item(key = "config") {

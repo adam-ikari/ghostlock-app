@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <string name="app_name">GhostLock</string>
+    <string name="app_name">GhostLock Titan 2</string>
     <string name="action_run">Run</string>
     <string name="action_running">Running…</string>
     <string name="advanced_settings">Advanced options</string>
@@ -10,7 +10,7 @@
     <string name="about_project">Project</string>
     <string name="about_source_code">Source code</string>
     <string name="about_origins">Project origins</string>
-    <string name="about_open_source">Open source licenses</string>
+    <string name="about_open_source">Licenses</string>
     <string name="opensource_info">Copyright © 2026 YuKongA</string>
     <string name="action_import_offsets_conf">Import offsets.conf (v2)</string>
     <string name="action_import_offsets_json">Import offsets.json (v1)</string>
@@ -55,7 +55,16 @@
     <string name="cancel">Cancel</string>
     <string name="profile_invalid">Profile parameters are invalid; fix the red fields first</string>
     <string name="run_blocked_no_profile">No profile matches this kernel; import or adjust it in Parameters</string>
-    <string name="run_blocked_shizuku">Shizuku is not ready; tap the status card to start or authorize</string>
+    <string name="run_checks_title">Pre-flight checks</string>
+    <string name="run_checks_summary">Everything the one-tap run needs: the kernel, the profile, and the separate apps it relies on.</string>
+    <string name="run_checks_blocked">%1$d blocking check(s) not satisfied — the run is disabled.</string>
+    <string name="check_state_ok">OK</string>
+    <string name="check_state_blocked">Required — the run cannot start yet</string>
+    <string name="check_state_optional">Optional — the run still works, without module loading</string>
+    <string name="check_kernel">Kernel supported</string>
+    <string name="check_profile">Profile matched and valid</string>
+    <string name="check_already_rooted">Device is not rooted yet (a rooted device skips the exploit)</string>
+    <string name="check_kernelsu_manager">KernelSU manager installed (supplies ksud)</string>
     <string name="export_share">Share offsets</string>
     <string name="export_failed">Export failed</string>
     <string name="export_current_marker">%1$s (current device)</string>
@@ -72,23 +81,29 @@
     <string name="kernel_profile_required">Profile required</string>
     <string name="kernel_profile_invalid">Profile needs correction</string>
     <string name="kernel_profile_ready">Profile ready</string>
-    <string name="kernel_profile_ready_shizuku">Shizuku ready</string>
     <string name="kernel_unsupported_summary">No matching kernel profile</string>
     <string name="kernel_profile_required_summary">Load a profile to continue</string>
     <string name="kernel_profile_invalid_summary">Correct the marked fields</string>
     <string name="cpu_pair_custom">Custom (%1$s)</string>
     <string name="cpu_pair_label">CPU cores</string>
+    <string name="module_zips_label">LSPosed module packages</string>
+    <string name="module_zips_summary">Pick the official ZygiskNext / Vector zips to install; they are not bundled (ZygiskNext forbids redistribution)</string>
+    <string name="module_zips_fetch_zygisknext_label">Fetch ZygiskNext</string>
+    <string name="module_zips_fetch_zygisknext_summary">Download the upstream release (its licence forbids bundling it)</string>
+    <string name="module_zips_fetch_vector_label">Fetch Vector</string>
+    <string name="module_zips_fetch_vector_summary">Download the upstream release (GPL-3.0); the manager APK ships inside</string>
+    <string name="module_fetch_kernelsu_label">Fetch KernelSU manager</string>
+    <string name="module_fetch_kernelsu_summary">Downloads the upstream APK and opens the installer; the root script takes libksud.so out of it</string>
+    <string name="module_fetch_kernelsu_missing">Downloaded APK is gone</string>
+    <string name="module_fetch_kernelsu_no_installer">No package installer accepted the APK</string>
+    <string name="download_mirror_label">Download proxy</string>
+    <string name="download_mirror_summary">Empty = straight upstream. Accepts "https://mirror/" or "https://mirror/?u={url}". A proxy can see and replace the zip, and these packages are installed as root — use one you trust</string>
+    <string name="download_mirror_title">Download proxy prefix</string>
+    <string name="download_mirror_hint">https://…/ 或 https://…/?u={url}</string>
     <string name="safe_mode_label">Safe mode</string>
     <string name="safe_mode_summary">Disable all modules</string>
     <string name="force_attack_test_label">Force attack test</string>
     <string name="force_attack_test_summary">Ignore an existing KernelSU root and run the exploit anyway; the rooted child is discarded at the end</string>
-    <string name="shizuku_label">Run via Shizuku</string>
-    <string name="shizuku_summary">Skip Seccomp bypass</string>
-    <string name="shizuku_recommended_hint">This kernel recommends running via Shizuku</string>
-    <string name="shizuku_status_not_running">Start Shizuku, then return here</string>
-    <string name="shizuku_status_permission_required">Grant Shizuku access when asked</string>
-    <string name="shizuku_status_ready">Shizuku ready</string>
-    <string name="shizuku_status_checking">Checking Shizuku status</string>
     <string name="manager_label">Root manager</string>
     <string name="manager_summary_auto">Auto (recommended)</string>
     <string name="manager_picker_title">Choose root manager</string>
@@ -96,9 +111,6 @@
     <string name="manager_no_ksud">No libksud.so detected, may not work</string>
     <string name="manager_show_all">Show all apps</string>
     <string name="manager_hide_all">Show compatible only</string>
-    <string name="w3_shizuku_hint_title">Enable Shizuku?</string>
-    <string name="w3_shizuku_hint_message">The last run failed at the W3 seccomp bypass stage. Running via Shizuku (shell uid, no seccomp) skips it.</string>
-    <string name="w3_shizuku_hint_enable">Enable</string>
     <string name="run_interrupted_title">Previous run interrupted</string>
     <string name="run_interrupted_message">The last attack stopped mid-way (the device may have panicked and rebooted). Check the device and try again.</string>
     <string name="dialog_dismiss">Dismiss</string>
