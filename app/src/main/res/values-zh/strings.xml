@@ -101,6 +101,16 @@
     <string name="module_fetch_kernelsu_summary">从上游 release 下载 APK 并打开安装器；root 脚本要从它里面取 libksud.so</string>
     <string name="module_fetch_kernelsu_missing">下载的 APK 不在了</string>
     <string name="module_fetch_kernelsu_no_installer">没有安装器能打开这个 APK</string>
+    <string name="component_detect_label">组件检测</string>
+    <string name="component_detect_summary">检查已下载的组件包、已安装的管理器、已加载的 KernelSU 模块</string>
+    <string name="component_detect_action">检测</string>
+    <string name="component_detect_running">检测中…</string>
+    <string name="component_status_ready">已就绪</string>
+    <string name="component_status_missing">缺失</string>
+    <string name="component_status_active">已激活</string>
+    <string name="component_status_inactive">未激活</string>
+    <string name="component_status_version">版本 %1$s</string>
+    <string name="component_status_none">未检测</string>
     <string name="download_mirror_label">下载加速</string>
     <string name="download_mirror_summary">从预设反代列表中选择。代理能看到并替换 zip，而这些包是以 root 安装的——只选你信任的</string>
     <string name="download_mirror_title">选择下载加速</string>

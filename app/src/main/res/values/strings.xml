@@ -101,6 +101,16 @@
     <string name="module_fetch_kernelsu_summary">Downloads the upstream APK and opens the installer; the root script takes libksud.so out of it</string>
     <string name="module_fetch_kernelsu_missing">Downloaded APK is gone</string>
     <string name="module_fetch_kernelsu_no_installer">No package installer accepted the APK</string>
+    <string name="component_detect_label">Component check</string>
+    <string name="component_detect_summary">Checks staged module packages, an installed manager, and a loaded KernelSU module</string>
+    <string name="component_detect_action">Check</string>
+    <string name="component_detect_running">Checking…</string>
+    <string name="component_status_ready">Ready</string>
+    <string name="component_status_missing">Missing</string>
+    <string name="component_status_active">Active</string>
+    <string name="component_status_inactive">Inactive</string>
+    <string name="component_status_version">version %1$s</string>
+    <string name="component_status_none">Not checked</string>
     <string name="download_mirror_label">Download accelerator</string>
     <string name="download_mirror_summary">Pick from the preset reverse-proxy list. A proxy can see and replace the zip, and these packages are installed as root — pick one you trust</string>
     <string name="download_mirror_title">Download accelerator</string>

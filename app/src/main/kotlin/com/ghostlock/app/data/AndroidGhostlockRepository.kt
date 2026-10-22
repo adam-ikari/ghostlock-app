@@ -21,6 +21,7 @@ import com.ghostlock.app.domain.model.ProfileConfig
 import com.ghostlock.app.domain.model.UserProfileFile
 import com.ghostlock.app.domain.repository.GhostlockRepository
 import com.ghostlock.app.domain.repository.ProfileConfigController
+import com.ghostlock.app.runtime.ComponentDetector
 import com.ghostlock.app.runtime.ComponentFetcher
 import com.ghostlock.app.runtime.LspdModuleStaging
 import kotlinx.coroutines.CancellationException
@@ -754,6 +755,11 @@ class AndroidGhostlockRepository(context: Context) : GhostlockRepository {
                     null
                 }
                 ?.absolutePath
+        }
+
+    override suspend fun detectComponents(): List<ComponentDetector.Status> =
+        withContext(Dispatchers.IO) {
+            ComponentDetector.detectAll(appContext, appContext.packageManager, appContext.packageName)
         }
 
     /** Reverse-proxy prefix used for component downloads; empty means direct. */

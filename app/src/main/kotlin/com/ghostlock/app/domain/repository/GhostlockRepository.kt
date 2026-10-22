@@ -9,6 +9,7 @@ import com.ghostlock.app.domain.model.OffsetImportResult
 import com.ghostlock.app.domain.model.ParseResult
 import com.ghostlock.app.domain.model.ProfileConfig
 import com.ghostlock.app.domain.model.UserProfileFile
+import com.ghostlock.app.runtime.ComponentDetector
 
 interface GhostlockRepository {
     suspend fun snapshot(): KernelSnapshot
@@ -87,6 +88,13 @@ interface GhostlockRepository {
      * be an installed app, because the root script loads `libksud.so` from it.
      */
     suspend fun fetchKernelSuManager(onLog: (String) -> Unit): String?
+
+    /**
+     * Checks, without running the exploit, which parts of the root stack are
+     * already in place: staged component zips, an installed manager, and a
+     * loaded KernelSU module. See `ComponentDetector.Status`.
+     */
+    suspend fun detectComponents(): List<ComponentDetector.Status>
 
     fun downloadMirror(): String
 

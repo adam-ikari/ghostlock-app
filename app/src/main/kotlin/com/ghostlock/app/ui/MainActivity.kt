@@ -206,6 +206,7 @@ private fun GhostlockRoute(
             override fun onFetchModulePackage(key: String) = viewModel.onFetchModulePackage(key)
             override fun onSetDownloadMirror() = viewModel.onSetDownloadMirror()
             override fun onFetchKernelSuManager() = viewModel.onFetchKernelSuManager()
+            override fun onDetectComponents() = viewModel.onDetectComponents()
             override fun onCloseManagerPicker() = viewModel.onCloseManagerPicker()
             override fun onManagerSelected(pkg: String?) = viewModel.onManagerSelected(pkg)
             override fun onDialogItemSelected(index: Int) = viewModel.onDialogItemSelected(index)

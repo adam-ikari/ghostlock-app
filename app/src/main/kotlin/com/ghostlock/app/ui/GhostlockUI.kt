@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import com.ghostlock.app.runtime.ComponentFetcher
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -66,6 +65,8 @@ import com.ghostlock.app.domain.model.ExecutionFieldValue
 import com.ghostlock.app.domain.model.ProfileFieldNode
 import com.ghostlock.app.domain.model.RunCheck
 import com.ghostlock.app.domain.model.UserProfileFile
+import com.ghostlock.app.runtime.ComponentDetector
+import com.ghostlock.app.runtime.ComponentFetcher
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -180,6 +181,9 @@ data class GhostlockUiState(
     val managerPickerVisible: Boolean = false,
     /** Pre-flight requirements of the one-tap run. */
     val runChecks: List<com.ghostlock.app.domain.model.RunCheck> = emptyList(),
+    /** Per-component detection rows; empty until the user taps "检测". */
+    val componentStatuses: List<ComponentDetector.Status> = emptyList(),
+    val componentDetecting: Boolean = false,
 )
 
 enum class DialogType { NONE, LIST, INPUT, NOTICE }
@@ -203,6 +207,7 @@ interface GhostlockActions {
     fun onFetchModulePackage(key: String)
     fun onSetDownloadMirror()
     fun onFetchKernelSuManager()
+    fun onDetectComponents()
 
     fun onOpenManagerPicker()
     fun onCloseManagerPicker()
@@ -896,12 +901,125 @@ private fun ControlPanel(
                 summary = stringResource(R.string.safe_mode_summary),
             )
         }
+        ComponentDetectCard(
+            statuses = state.componentStatuses,
+            detecting = state.componentDetecting,
+            onDetect = actions::onDetectComponents,
+            modifier = Modifier.fillMaxWidth(),
+        )
         Card(modifier = modifier.padding(top = 12.dp)) {
             ArrowPreference(
                 title = stringResource(R.string.advanced_settings),
                 summary = stringResource(R.string.advanced_settings_summary),
                 onClick = actions::onOpenAdvanced,
             )
+        }
+    }
+}
+
+/**
+ * Shows whether each moving part of the root stack is already in place.
+ *
+ * Nothing here runs the exploit: staged zips are verified on disk, the manager
+ * is looked up through the package manager, and module activity comes from
+ * `/proc/modules` or a `su` probe. A row that was never checked says so rather
+ * than claiming "missing".
+ */
+@Composable
+private fun ComponentDetectCard(
+    statuses: List<ComponentDetector.Status>,
+    detecting: Boolean,
+    onDetect: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.padding(top = 12.dp),
+        insideMargin = PaddingValues(16.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.component_detect_label),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = stringResource(R.string.component_detect_summary),
+                fontSize = 13.sp,
+                color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+            )
+            if (statuses.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.component_status_none),
+                    fontSize = 13.sp,
+                    color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                )
+            } else {
+                statuses.forEach { status ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Icon(
+                            imageVector = if (status.ok) {
+                                Icons.Rounded.CheckCircleOutline
+                            } else {
+                                Icons.Rounded.ErrorOutline
+                            },
+                            contentDescription = null,
+                            tint = if (status.ok) {
+                                MiuixTheme.colorScheme.primary
+                            } else {
+                                MiuixTheme.colorScheme.error
+                            },
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = status.label,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MiuixTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = statusDetail(status),
+                                fontSize = 13.sp,
+                                color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                            )
+                        }
+                    }
+                }
+            }
+            TextButton(
+                modifier = Modifier.fillMaxWidth(),
+                text = stringResource(
+                    if (detecting) R.string.component_detect_running else R.string.component_detect_action,
+                ),
+                onClick = onDetect,
+                enabled = !detecting,
+            )
+        }
+    }
+}
+
+@Composable
+private fun statusDetail(status: ComponentDetector.Status): String {
+    val detail = status.detail
+    return when {
+        detail == null -> stringResource(R.string.component_status_missing)
+        status.key == "module_active" -> stringResource(
+            if (status.ok) R.string.component_status_active else R.string.component_status_inactive,
+        )
+        else -> stringResource(
+            if (status.ok) R.string.component_status_ready else R.string.component_status_missing,
+        ) + if (detail.isNotBlank() && status.ok) {
+            " · " + stringResource(R.string.component_status_version, detail)
+        } else {
+            ""
         }
     }
 }

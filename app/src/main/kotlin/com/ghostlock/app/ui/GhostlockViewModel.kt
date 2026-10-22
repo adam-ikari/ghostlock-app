@@ -942,6 +942,27 @@ class GhostlockViewModel(
     }
 
     /**
+     * Reports which parts of the root stack are already in place, without
+     * running the exploit. Each row stands alone, so a user who only needs the
+     * manager APK can skip the download prompts and see that the rest is done.
+     */
+    fun onDetectComponents() {
+        if (state.value.componentDetecting) return
+        mutableState.update { it.copy(componentDetecting = true) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val statuses = runCatching { repository.detectComponents() }
+                .getOrElse { error ->
+                    appendLog("component detect: ${error.message}")
+                    emptyList()
+                }
+            val ready = statuses.count { it.ok }
+            appendLog("component detect: $ready/${statuses.size} ready")
+            statuses.filterNot { it.ok }.forEach { appendLog("component detect: ${it.label} missing") }
+            mutableState.update { it.copy(componentStatuses = statuses, componentDetecting = false) }
+        }
+    }
+
+    /**
      * The native pre-attack check skips the exploit when a KernelSU module is
      * already loaded; that line is the only reliable "already rooted" signal
      * the app can see without a shell, so it is folded into the checks.
